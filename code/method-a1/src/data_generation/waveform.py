@@ -1,0 +1,65 @@
+"""由 OpenDSS 相量锚点生成动态电压相量窗口。"""
+
+import numpy as np
+
+
+def build_dynamic_window(
+    pre_phasor: np.ndarray,
+    post_phasor: np.ndarray,
+    fs: float = 200.0,
+    f0: float = 50.0,
+    pre_cycles: float = 1.0,
+    post_cycles: float = 2.0,
+    rng=None,
+) -> np.ndarray:
+    """生成形状为 `[N,T,6]` 的幅值/相角动态窗口。"""
+    if pre_phasor.shape != post_phasor.shape or pre_phasor.ndim != 2:
+        raise ValueError("预故障和故障后相量必须具有相同的二维形状")
+    if pre_phasor.shape[1] < 6:
+        raise ValueError("相量至少需要六个通道")
+    rng = np.random.default_rng() if rng is None else rng
+    n_nodes = pre_phasor.shape[0]
+    pre_len = max(1, int(round(fs / f0 * pre_cycles)))
+    post_len = max(1, int(round(fs / f0 * post_cycles)))
+    total_len = pre_len + post_len
+    out = np.zeros((n_nodes, total_len, 6), dtype=np.float32)
+
+    pre_mag = pre_phasor[:, :3]
+    post_mag = post_phasor[:, :3]
+    pre_ang = np.deg2rad(pre_phasor[:, 3:6])
+    post_ang = np.deg2rad(post_phasor[:, 3:6])
+    phase_shift = rng.uniform(-0.02, 0.02, size=(n_nodes, 3))
+    mag_noise_scale = 0.001 + 0.002 * rng.random((n_nodes, 3))
+    damp_amp = 0.01 + 0.03 * rng.random((n_nodes, 3))
+    t = np.arange(total_len, dtype=np.float64) / fs
+    tau = max(0.001, (post_len / fs) * 0.25)
+    tau_damp = max(0.001, (post_len / fs) * 0.4)
+    fault_start = pre_len / fs
+
+    for phase in range(3):
+        for idx in range(pre_len):
+            perturb = mag_noise_scale[:, phase] * np.sin(
+                2.0 * np.pi * 2.0 * t[idx] + phase_shift[:, phase]
+            )
+            out[:, idx, phase] = pre_mag[:, phase] * (1.0 + perturb)
+            out[:, idx, 3 + phase] = np.rad2deg(
+                pre_ang[:, phase] + phase_shift[:, phase]
+            )
+        for idx in range(pre_len, total_len):
+            elapsed = idx - pre_len
+            transition = float(np.exp(-elapsed / fs / tau))
+            damping = float(np.exp(-elapsed / fs / tau_damp))
+            oscillation = damp_amp[:, phase] * damping * np.sin(
+                2.0 * np.pi * f0 * (t[idx] - fault_start) + phase_shift[:, phase]
+            )
+            out[:, idx, phase] = (
+                post_mag[:, phase]
+                + (pre_mag[:, phase] - post_mag[:, phase]) * transition
+                + oscillation
+            )
+            out[:, idx, 3 + phase] = np.rad2deg(
+                post_ang[:, phase]
+                + (pre_ang[:, phase] - post_ang[:, phase]) * transition
+                + oscillation * 0.5
+            )
+    return out.astype(np.float32)
