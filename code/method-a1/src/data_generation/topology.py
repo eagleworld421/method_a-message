@@ -6,19 +6,23 @@ import numpy as np
 
 
 def build_candidate_edges(adj_matrix: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """从无向邻接矩阵构造唯一候选边及其基础属性。"""
+    """从无向邻接矩阵构造双向候选边及其基础属性。
+
+    每条无向边 `(i, j)` 展开为 `(i, j)` 和 `(j, i)`，供消息传递分别聚合。
+    """
     n = int(adj_matrix.shape[0])
     rows, cols = np.where(np.triu(adj_matrix, k=1) > 0)
-    edge_index = np.stack([rows, cols], axis=1).astype(np.int64)
-    length = np.ones(len(rows), dtype=np.float32)
+    undirected = np.stack([rows, cols], axis=1).astype(np.int64)
+    edge_index = np.concatenate([undirected, undirected[:, ::-1]], axis=0)
+    length = np.ones(len(edge_index), dtype=np.float32)
     edge_attr = np.stack([
-        np.ones(len(rows), dtype=np.float32),
-        np.ones(len(rows), dtype=np.float32),
+        np.ones(len(edge_index), dtype=np.float32),
+        np.ones(len(edge_index), dtype=np.float32),
         length,
-        np.ones(len(rows), dtype=np.float32),
-        np.ones(len(rows), dtype=np.float32),
+        np.ones(len(edge_index), dtype=np.float32),
+        np.ones(len(edge_index), dtype=np.float32),
     ], axis=1)
-    if n == 0:
+    if n == 0 or len(undirected) == 0:
         return np.empty((0, 2), dtype=np.int64), np.empty((0, 5), dtype=np.float32)
     return edge_index, edge_attr
 

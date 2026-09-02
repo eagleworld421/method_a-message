@@ -183,17 +183,20 @@ P(k\mid X_O,G_{obs})\propto P_{direct}(k\mid X_O,G_{obs})
 
 `src/data_generation/dataset_builder.py` 生成并持久化以下数组：
 
-- `X_obs`、`X_full`：形状 `[B,N,T,6]` 的观测与完整动态波形，六个通道为三相幅值和三相相角；
+- `X_obs`、`X_full`：形状 `[B,N,T,6]` 的观测与完整动态波形，六个通道按 `[Re_A, Im_A, Re_B, Im_B, Re_C, Im_C]` 排列，并已使用训练集统计量做逐通道 z-score 标准化；
 - `signature_bank`：形状 `[B,N+1,N,T,6]` 的全候选稠密签名；
 - `mask`、`edge_mask`：S0 中分别为全一的观测与拓扑掩码；
 - `edge_index`、`edge_attr`：由馈线拓扑导出的候选边及线路参数；
 - `y_detect`、`y_loc`、`y_class`、`y_resist`：检测、位置、故障类别和故障阻抗标签。
 
+标准化参数写入 `feature_scaler.npz`，包含 `mean[6]` 和 `std[6]`；`meta.json` 的 `feature_format` 为 `real_imag_standardized`。
+其中 `meta.json` 的 `n_edges` 和 `directed_edge_count` 表示双向消息边数量，`undirected_edge_count` 表示物理线路数量。
+
 每条故障样本的 `X_full` 为真实故障签名，`X_obs` 在 S0 中与之相同；正常样本的 `NO_FAULT` 签名为基准波形。数据生成与加载均支持输出目录自动创建，避免首次运行的持久化错误。
 
 ### 6.3 TCN、普通拓扑 GNN 与 A1 解码器
 
-`src/model/temporal.py` 复用 Method-C 的因果 TCN 思路，对每个母线的 `[T,6]` 波形编码为节点表征。`src/model/gnn.py` 使用带线路属性的普通消息传递 GNN，输入 `edge_index`、`edge_attr` 和 `edge_mask`，输出节点表示 `h` 与全局表示 `g`；模型不包含边可信度状态或边可信度损失。
+`src/model/temporal.py` 复用 Method-C 的因果 TCN 思路，对每个母线的 `[T,6]` 波形编码为节点表征。`src/model/gnn.py` 使用带线路属性的普通消息传递 GNN，输入 `edge_index`、`edge_attr` 和 `edge_mask`，输出节点表示 `h` 与全局表示 `g`；每条无向线路在 `edge_index` 中显式展开为正、反两个方向，模型不包含边可信度状态或边可信度损失。
 
 `src/model/signature_predictor.py` 实现 A1 候选解码器：对母线候选读取相应节点表征，对 `NO_FAULT` 使用全局表征和冻结的正常嵌入，批量输出 `[B,C,N,T,6]`。解码器不直接读取真实候选标签，残差排序因此仍是独立的反事实比较。
 
@@ -248,6 +251,7 @@ P(k\mid X_O,G_{obs})\propto P_{direct}(k\mid X_O,G_{obs})
 ```text
 python -m pytest tests -q
 python main.py --mode smoke --case ieee13 --samples-per-bus 1 --epochs 1
+python main.py --mode evaluate --data-dir data/s0 --output-dir output/s0-eval --checkpoint-dir checkpoint/s0 --s0-only
 ```
 
-运行前需确认本机已安装并注册 OpenDSS COM 组件（`OpenDSSEngine.DSS`）。数据、检查点和报告分别写入 `data/`、`checkpoint/` 和 `output/`；最终交付只从 `output/` 读取。S1/S2 暂无可复现入口，避免将未验证场景误当作当前结论。
+运行前需确认本机已安装并注册 OpenDSS COM 组件（`OpenDSSEngine.DSS`）。数据、检查点和报告分别写入 `data/`、`checkpoint/` 和 `output/`；再次运行时会复用已完成的 checkpoint 或从已保存轮次继续训练，`evaluate` 模式可独立加载 checkpoint 评估测试集。最终交付只从 `output/` 读取。S1/S2 暂无可复现入口，避免将未验证场景误当作当前结论。

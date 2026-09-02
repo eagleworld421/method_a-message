@@ -12,7 +12,11 @@ def build_dynamic_window(
     post_cycles: float = 2.0,
     rng=None,
 ) -> np.ndarray:
-    """生成形状为 `[N,T,6]` 的幅值/相角动态窗口。"""
+    """生成 `[N,T,6]` 的实部/虚部动态窗口。
+
+    输出通道固定为 `[Re_A, Im_A, Re_B, Im_B, Re_C, Im_C]`；输入相量仍为
+    `[幅值_A, 幅值_B, 幅值_C, 角度_A_deg, 角度_B_deg, 角度_C_deg]`。
+    """
     if pre_phasor.shape != post_phasor.shape or pre_phasor.ndim != 2:
         raise ValueError("预故障和故障后相量必须具有相同的二维形状")
     if pre_phasor.shape[1] < 6:
@@ -22,7 +26,7 @@ def build_dynamic_window(
     pre_len = max(1, int(round(fs / f0 * pre_cycles)))
     post_len = max(1, int(round(fs / f0 * post_cycles)))
     total_len = pre_len + post_len
-    out = np.zeros((n_nodes, total_len, 6), dtype=np.float32)
+    polar = np.zeros((n_nodes, total_len, 6), dtype=np.float32)
 
     pre_mag = pre_phasor[:, :3]
     post_mag = post_phasor[:, :3]
@@ -41,8 +45,8 @@ def build_dynamic_window(
             perturb = mag_noise_scale[:, phase] * np.sin(
                 2.0 * np.pi * 2.0 * t[idx] + phase_shift[:, phase]
             )
-            out[:, idx, phase] = pre_mag[:, phase] * (1.0 + perturb)
-            out[:, idx, 3 + phase] = np.rad2deg(
+            polar[:, idx, phase] = pre_mag[:, phase] * (1.0 + perturb)
+            polar[:, idx, 3 + phase] = np.rad2deg(
                 pre_ang[:, phase] + phase_shift[:, phase]
             )
         for idx in range(pre_len, total_len):
@@ -52,14 +56,21 @@ def build_dynamic_window(
             oscillation = damp_amp[:, phase] * damping * np.sin(
                 2.0 * np.pi * f0 * (t[idx] - fault_start) + phase_shift[:, phase]
             )
-            out[:, idx, phase] = (
+            polar[:, idx, phase] = (
                 post_mag[:, phase]
                 + (pre_mag[:, phase] - post_mag[:, phase]) * transition
                 + oscillation
             )
-            out[:, idx, 3 + phase] = np.rad2deg(
+            polar[:, idx, 3 + phase] = np.rad2deg(
                 post_ang[:, phase]
                 + (pre_ang[:, phase] - post_ang[:, phase]) * transition
                 + oscillation * 0.5
             )
+    magnitude = polar[:, :, :3]
+    angle = np.deg2rad(polar[:, :, 3:6])
+    real = magnitude * np.cos(angle)
+    imag = magnitude * np.sin(angle)
+    out = np.empty_like(polar)
+    out[:, :, 0::2] = real
+    out[:, :, 1::2] = imag
     return out.astype(np.float32)

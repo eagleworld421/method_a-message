@@ -37,12 +37,15 @@ def test_build_s0_dataset_contains_dense_signature_bank(tmp_path, monkeypatch):
     bank = np.load(tmp_path / "signature_bank.npy")
     mask = np.load(tmp_path / "mask.npy")
     edge_mask = np.load(tmp_path / "edge_mask.npy")
+    edge_index = np.load(tmp_path / "edge_index.npy")
+    edge_attr = np.load(tmp_path / "edge_attr.npy")
     loaded = load_dataset(tmp_path)
 
     assert bank.ndim == 5
     assert bank.shape[1] == 4
     assert mask.all()
     assert edge_mask.all()
+    assert edge_index.shape[0] == edge_attr.shape[0] == edge_mask.shape[1]
     assert meta["s0_only"] is True
     assert loaded["meta"]["n_candidates"] == 4
     json.loads((tmp_path / "meta.json").read_text(encoding="utf-8"))
@@ -76,3 +79,38 @@ def test_build_dataset_creates_output_directory(tmp_path, monkeypatch):
     output_dir = tmp_path / "nested" / "dataset"
     build_dataset(output_dir, samples_per_bus=1, seed=0, s0_only=True)
     assert (output_dir / "meta.json").exists()
+
+
+def test_build_dataset_persists_training_feature_scaler(tmp_path, monkeypatch):
+    """数据集应按训练样本统计并持久化六通道标准化参数。"""
+    import src.data_generation.dataset_builder as builder
+
+    class FakeSimulator:
+        def __init__(self, case_name):
+            self._n_nodes = 2
+            self._base_loads = {}
+            self.line_params = {(0, 1): (0.1, 0.2, 0.22)}
+
+        def generate_scenario(self, config):
+            value = float(config.fault_bus + 1) if config.fault_bus is not None else 0.0
+            pre = np.array([[1, 1, 1, 0, 90, 180], [1, 1, 1, 0, 90, 180]], dtype=np.float32)
+            post = pre.copy()
+            post[:, :3] *= value
+            return {"pre_v": pre, "post_v": post, "y_resist": config.z_fault}
+
+        def _compile_and_solve_base(self, load_multipliers=None):
+            return None
+
+        def _read_voltages(self):
+            return np.array([[1, 1, 1, 0, 90, 180], [1, 1, 1, 0, 90, 180]], dtype=np.float32)
+
+    monkeypatch.setattr(builder, "FaultSimulator", FakeSimulator)
+    output_dir = tmp_path / "scaled"
+    meta = build_dataset(output_dir, samples_per_bus=1, seed=0, s0_only=True)
+    scaler = np.load(output_dir / "feature_scaler.npz")
+    assert scaler["mean"].shape == (6,)
+    assert scaler["std"].shape == (6,)
+    assert np.all(scaler["std"] >= 1e-8)
+    assert meta["feature_format"] == "real_imag_standardized"
+    assert meta["feature_channels"] == ["Re_A", "Im_A", "Re_B", "Im_B", "Re_C", "Im_C"]
+    assert np.isfinite(np.load(output_dir / "X_obs.npy")).all()

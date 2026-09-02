@@ -20,6 +20,16 @@ def _set_seed(seed: int) -> None:
     torch.manual_seed(seed)
 
 
+def _build_model(data: dict) -> A1SignaturePredictor:
+    """根据数据集形状构造 A1 模型。"""
+    n_nodes, time_steps, feature_dim = data["X_obs"].shape[1:]
+    return A1SignaturePredictor(
+        n_nodes=n_nodes, time_steps=time_steps, feature_dim=feature_dim,
+        temporal_hidden=32, temporal_out=32, gnn_hidden=32,
+        candidate_dim=32, hidden_dim=64,
+    )
+
+
 def _evaluate_test(model, dataset, edge_index, edge_attr, edge_mask, device, batch_size, threshold):
     """批量计算测试集预测并汇总 S0 指标。"""
     model.eval()
@@ -83,22 +93,35 @@ def run_experiment(
     data = load_dataset(data_dir)
     dataset = A1ArrayDataset(data_dir)
     n_nodes, time_steps, feature_dim = data["X_obs"].shape[1:]
-    model = A1SignaturePredictor(
-        n_nodes=n_nodes, time_steps=time_steps, feature_dim=feature_dim,
-        temporal_hidden=32, temporal_out=32, gnn_hidden=32,
-        candidate_dim=32, hidden_dim=64,
-    )
+    model = _build_model(data)
     trainer = A1Trainer(
         model, dataset, dataset.edge_index, dataset.edge_attr,
         dataset.edge_mask[0], device=device, lr=lr,
         batch_size=batch_size, epochs=epochs, seed=seed,
     )
-    history = trainer.fit()
     checkpoint_path = checkpoint_dir / "model.pt"
+    checkpoint_loaded = False
+    training_skipped = False
+    if checkpoint_path.exists():
+        payload = trainer.load_checkpoint(checkpoint_path)
+        saved_meta = payload.get("meta", {})
+        for key, value in (("n_nodes", n_nodes), ("window_len", time_steps), ("feature_dim", feature_dim)):
+            if key in saved_meta and int(saved_meta[key]) != int(value):
+                raise ValueError(f"checkpoint 与当前数据集的 {key} 不一致")
+        checkpoint_loaded = True
+    if trainer.start_epoch < epochs:
+        history = trainer.fit()
+    elif trainer.history is not None:
+        history = trainer.history
+        training_skipped = True
+    else:
+        history = {"train_loss": [], "val_loss": [], "train_size": 0, "val_size": 0}
+        training_skipped = True
     trainer.save_checkpoint(checkpoint_path, {
         "case": case, "scenario": "S0", "seed": seed,
         "n_nodes": n_nodes, "n_candidates": n_nodes + 1,
-    })
+        "window_len": time_steps, "feature_dim": feature_dim,
+    }, epoch=trainer.start_epoch, history=history)
     metrics = _evaluate_test(
         model, dataset, trainer.edge_index, trainer.edge_attr,
         trainer.edge_mask, trainer.device, batch_size, threshold=0.0,
@@ -120,6 +143,9 @@ def run_experiment(
         "history": history,
         "data_meta": data["meta"],
         "checkpoint": str(checkpoint_path),
+        "checkpoint_loaded": checkpoint_loaded,
+        "training_skipped": training_skipped,
+        "checkpoint_epoch": int(trainer.start_epoch),
         "elapsed_seconds": round(time.perf_counter() - start, 4),
     }
     (output_dir / "report.json").write_text(
@@ -134,10 +160,53 @@ def run_experiment(
     return report
 
 
+def evaluate_checkpoint(
+    data_dir: Path,
+    checkpoint_path: Path,
+    output_dir: Path,
+    device: str = "cpu",
+    batch_size: int = 8,
+) -> dict:
+    """加载已有 checkpoint，对 S0 测试集执行独立评估。"""
+    data_dir, checkpoint_path, output_dir = map(Path, (data_dir, checkpoint_path, output_dir))
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(f"checkpoint 不存在：{checkpoint_path}")
+    data = load_dataset(data_dir)
+    dataset = A1ArrayDataset(data_dir)
+    n_nodes, time_steps, feature_dim = data["X_obs"].shape[1:]
+    model = _build_model(data)
+    trainer = A1Trainer(
+        model, dataset, dataset.edge_index, dataset.edge_attr,
+        dataset.edge_mask[0], device=device, batch_size=batch_size, epochs=0,
+    )
+    payload = trainer.load_checkpoint(checkpoint_path)
+    saved_meta = payload.get("meta", {})
+    for key, value in (("n_nodes", n_nodes), ("window_len", time_steps), ("feature_dim", feature_dim)):
+        if key in saved_meta and int(saved_meta[key]) != int(value):
+            raise ValueError(f"checkpoint 与当前数据集的 {key} 不一致")
+    metrics = _evaluate_test(
+        model, dataset, trainer.edge_index, trainer.edge_attr,
+        trainer.edge_mask, trainer.device, batch_size, threshold=0.0,
+    )
+    report = {
+        "scenario": "S0", "case": data["meta"].get("case", "unknown"),
+        "n_nodes": int(n_nodes), "n_candidates": int(n_nodes + 1),
+        "window_len": int(time_steps), "feature_dim": int(feature_dim),
+        "test_size": int(len(dataset.test_idx)), "metrics": metrics,
+        "checkpoint": str(checkpoint_path),
+        "checkpoint_epoch": int(payload.get("epoch", 0)),
+    }
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "report.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return report
+
+
 def parse_args():
     """解析命令行参数。"""
     parser = argparse.ArgumentParser(description="Method-A1 OpenDSS S0 实验")
-    parser.add_argument("--mode", choices=("smoke", "benchmark"), default="smoke")
+    parser.add_argument("--mode", choices=("smoke", "benchmark", "evaluate"), default="smoke")
     parser.add_argument("--case", default="ieee13")
     parser.add_argument("--data-dir", type=Path, default=Path("data/s0"))
     parser.add_argument("--output-dir", type=Path, default=Path("output/s0"))
@@ -155,6 +224,13 @@ def parse_args():
 def main():
     """执行命令行实验。"""
     args = parse_args()
+    if args.mode == "evaluate":
+        report = evaluate_checkpoint(
+            data_dir=args.data_dir, checkpoint_path=args.checkpoint_dir / "model.pt",
+            output_dir=args.output_dir, device=args.device, batch_size=args.batch_size,
+        )
+        print(json.dumps({"scenario": report["scenario"], "metrics": report["metrics"]}, ensure_ascii=False))
+        return
     samples = args.samples_per_bus or (1 if args.mode == "smoke" else 2)
     epochs = args.epochs or (1 if args.mode == "smoke" else 10)
     report = run_experiment(

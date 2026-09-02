@@ -89,6 +89,8 @@ class A1Trainer:
         self.seed = int(seed)
         self.checkpoint_path = Path(checkpoint_path) if checkpoint_path else None
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
+        self.start_epoch = 0
+        self.history = None
 
     def _split_indices(self):
         """从固定训练索引中划分确定性的训练集和验证集。"""
@@ -154,10 +156,17 @@ class A1Trainer:
         self._normal_embedding(train_indices)
         train_loader = self._loader(train_indices, shuffle=True)
         val_loader = self._loader(val_indices, shuffle=False)
-        history = {"train_loss": [], "val_loss": [], "train_size": len(train_indices), "val_size": len(val_indices)}
+        history = self.history or {
+            "train_loss": [], "val_loss": [],
+            "train_size": len(train_indices), "val_size": len(val_indices),
+        }
+        history["train_size"] = len(train_indices)
+        history["val_size"] = len(val_indices)
         best_val = float("inf")
         best_state = None
-        for epoch in range(self.epochs):
+        if history.get("val_loss"):
+            best_val = min(float(value) for value in history["val_loss"])
+        for epoch in range(self.start_epoch, self.epochs):
             train_loss = self._run_epoch(train_loader, train=True)
             with torch.no_grad():
                 val_loss = self._run_epoch(val_loader, train=False)
@@ -170,13 +179,31 @@ class A1Trainer:
         history["best_val_loss"] = best_val
         if best_state is not None:
             self.model.load_state_dict(best_state)
+        self.start_epoch = max(self.start_epoch, self.epochs)
+        self.history = history
         return history
 
-    def save_checkpoint(self, path: Path, meta: dict) -> None:
-        """保存模型参数、配置和训练元数据。"""
+    def save_checkpoint(self, path: Path, meta: dict, epoch=None, history=None) -> None:
+        """保存模型、优化器、训练轮次、历史和配置元数据。"""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         torch.save({
             "state_dict": self.model.state_dict(),
+            "optimizer_state_dict": self.optimizer.state_dict(),
+            "epoch": int(self.start_epoch if epoch is None else epoch),
+            "history": self.history if history is None else history,
             "meta": meta,
         }, path)
+
+    def load_checkpoint(self, path: Path, map_location=None) -> dict:
+        """加载模型和可用训练状态，返回 checkpoint 内容。"""
+        payload = torch.load(
+            Path(path), map_location=map_location or self.device,
+            weights_only=False,
+        )
+        self.model.load_state_dict(payload["state_dict"])
+        if "optimizer_state_dict" in payload:
+            self.optimizer.load_state_dict(payload["optimizer_state_dict"])
+        self.start_epoch = int(payload.get("epoch", 0))
+        self.history = payload.get("history")
+        return payload

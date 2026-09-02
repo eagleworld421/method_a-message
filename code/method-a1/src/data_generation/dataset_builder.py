@@ -23,14 +23,15 @@ class EventConfig:
 
 
 def _edge_arrays(simulator: FaultSimulator):
-    """从仿真器线路参数构造唯一边及五维边属性。"""
-    edges = sorted({(i, j) for i, j in simulator.line_params if i < j})
+    """从仿真器线路参数构造双向边及五维边属性。"""
+    undirected = sorted({(i, j) if i < j else (j, i) for i, j in simulator.line_params})
+    edges = [edge for pair in undirected for edge in (pair, pair[::-1])]
     edge_index = np.asarray(edges, dtype=np.int64).reshape(-1, 2)
     edge_attr = np.asarray([
         [
-            simulator.line_params[(i, j)][0],
-            simulator.line_params[(i, j)][1],
-            simulator.line_params[(i, j)][2],
+            (simulator.line_params[(i, j)] if (i, j) in simulator.line_params else simulator.line_params[(j, i)])[0],
+            (simulator.line_params[(i, j)] if (i, j) in simulator.line_params else simulator.line_params[(j, i)])[1],
+            (simulator.line_params[(i, j)] if (i, j) in simulator.line_params else simulator.line_params[(j, i)])[2],
             1.0,
             1.0,
         ]
@@ -191,6 +192,20 @@ def build_dataset(
     n_train = max(1, min(total - 1, int(round(total * 0.8)))) if total > 1 else 1
     train_idx, test_idx = indices[:n_train], indices[n_train:]
 
+    # 只使用训练样本的全候选签名统计量，避免测试集信息泄漏。
+    train_values = signature_bank[train_idx].reshape(-1, signature_bank.shape[-1])
+    feature_mean = train_values.mean(axis=0).astype(np.float32)
+    feature_std = train_values.std(axis=0).astype(np.float32)
+    feature_std = np.where(feature_std < 1e-8, 1.0, feature_std).astype(np.float32)
+
+    def standardize(values: np.ndarray) -> np.ndarray:
+        """使用训练集统计量对最后一个特征轴做 z-score 标准化。"""
+        return ((values - feature_mean) / feature_std).astype(np.float32)
+
+    x_obs = standardize(x_obs)
+    x_full = standardize(x_full)
+    signature_bank = standardize(signature_bank)
+
     arrays = {
         "X_obs": x_obs,
         "X_full": x_full,
@@ -209,6 +224,7 @@ def build_dataset(
     output_dir.mkdir(parents=True, exist_ok=True)
     for name, value in arrays.items():
         np.save(output_dir / f"{name}.npy", value)
+    np.savez(output_dir / "feature_scaler.npz", mean=feature_mean, std=feature_std)
 
     meta = {
         "case": case_name,
@@ -217,6 +233,8 @@ def build_dataset(
         "n_nodes": int(n_nodes),
         "n_candidates": int(n_nodes + 1),
         "n_edges": int(len(edge_index)),
+        "directed_edge_count": int(len(edge_index)),
+        "undirected_edge_count": int(len(edge_index) // 2),
         "n_samples": int(total),
         "n_fault": int(n_fault),
         "n_normal": int(n_normal),
@@ -227,6 +245,9 @@ def build_dataset(
         "post_cycles": float(post_cycles),
         "window_len": int(x_obs.shape[2]),
         "feature_dim": 6,
+        "feature_format": "real_imag_standardized",
+        "feature_channels": ["Re_A", "Im_A", "Re_B", "Im_B", "Re_C", "Im_C"],
+        "feature_scaler": "feature_scaler.npz",
         "res_min": float(res_min),
         "res_max": float(res_max),
         "seed": int(seed),

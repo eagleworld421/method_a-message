@@ -50,3 +50,81 @@ def test_mock_s0_experiment_writes_report(tmp_path, monkeypatch):
     assert loaded["scenario"] == "S0"
     assert "node_top1" in loaded["metrics"]
     assert report["scenario"] == "S0"
+
+
+def test_completed_checkpoint_is_reused_without_retraining(tmp_path, monkeypatch):
+    """已完成轮次的 checkpoint 应跳过重复训练。"""
+    import src.data_generation.dataset_builder as builder
+    import src.trainer as trainer_module
+    from main import run_experiment
+
+    class FakeSimulator:
+        def __init__(self, case_name):
+            self._n_nodes = 2
+            self._base_loads = {}
+            self.line_params = {(0, 1): (0.1, 0.2, 0.22)}
+
+        def generate_scenario(self, config):
+            post = np.zeros((2, 6), dtype=np.float32)
+            if config.fault_bus is not None:
+                post[config.fault_bus] = float(config.fault_bus + 1)
+            return {"pre_v": np.zeros((2, 6), dtype=np.float32), "post_v": post, "y_resist": config.z_fault}
+
+        def _compile_and_solve_base(self, load_multipliers=None):
+            return None
+
+        def _read_voltages(self):
+            return np.zeros((2, 6), dtype=np.float32)
+
+    monkeypatch.setattr(builder, "FaultSimulator", FakeSimulator)
+    kwargs = dict(
+        data_dir=tmp_path / "data", output_dir=tmp_path / "output",
+        checkpoint_dir=tmp_path / "checkpoint", samples_per_bus=1,
+        epochs=1, batch_size=2, device="cpu", seed=0, s0_only=True,
+    )
+    first = run_experiment(**kwargs)
+    original_fit = trainer_module.A1Trainer.fit
+    monkeypatch.setattr(trainer_module.A1Trainer, "fit", lambda self: (_ for _ in ()).throw(AssertionError("不应重复训练")))
+    second = run_experiment(**kwargs)
+    monkeypatch.setattr(trainer_module.A1Trainer, "fit", original_fit)
+    assert first["checkpoint_loaded"] is False
+    assert second["checkpoint_loaded"] is True
+    assert second["training_skipped"] is True
+
+
+def test_checkpoint_supports_independent_evaluation(tmp_path, monkeypatch):
+    """独立评估入口应能加载已有 checkpoint 并写出报告。"""
+    import src.data_generation.dataset_builder as builder
+    from main import evaluate_checkpoint, run_experiment
+
+    class FakeSimulator:
+        def __init__(self, case_name):
+            self._n_nodes = 2
+            self._base_loads = {}
+            self.line_params = {(0, 1): (0.1, 0.2, 0.22)}
+
+        def generate_scenario(self, config):
+            post = np.zeros((2, 6), dtype=np.float32)
+            if config.fault_bus is not None:
+                post[config.fault_bus] = 1.0
+            return {"pre_v": np.zeros((2, 6), dtype=np.float32), "post_v": post, "y_resist": config.z_fault}
+
+        def _compile_and_solve_base(self, load_multipliers=None):
+            return None
+
+        def _read_voltages(self):
+            return np.zeros((2, 6), dtype=np.float32)
+
+    monkeypatch.setattr(builder, "FaultSimulator", FakeSimulator)
+    kwargs = dict(
+        data_dir=tmp_path / "data", output_dir=tmp_path / "output",
+        checkpoint_dir=tmp_path / "checkpoint", samples_per_bus=1,
+        epochs=1, batch_size=2, device="cpu", seed=0, s0_only=True,
+    )
+    run_experiment(**kwargs)
+    report = evaluate_checkpoint(
+        data_dir=kwargs["data_dir"], checkpoint_path=kwargs["checkpoint_dir"] / "model.pt",
+        output_dir=tmp_path / "eval-output", device="cpu", batch_size=2,
+    )
+    assert report["scenario"] == "S0"
+    assert (tmp_path / "eval-output" / "report.json").exists()
