@@ -35,4 +35,4 @@ code/method-a/
 - 原始或生成数据写入对应方法的 `data/`；模型权重和中间状态写入 `checkpoint/`；最终结果和报告写入 `output/`；日志写入 `logs/`。
 - 不得将代码、数据、模型权重或最终报告写入方法目录之外，也不得把最终报告写入 `checkpoint/`。
 - `code/**` 下 Python 文件的注释和 docstring 使用中文。
-- 若任务涉及文档、README、计划或测试命令，相关路径必须使用 `tests/` 和 `docs/`，不得使用 `test/` 或项目级 `doc/`。
+- 若任务涉及文档、README、计划或测试命令，相关路径必须使用 `tests/` 和 `docs/`。
