@@ -2,7 +2,7 @@
 
 ## 总体状态
 
-- 项目状态：规则骨架已建立，业务代码尚未开始生成。
+- 项目状态：Method-A1 S0 初步实现完成，已通过单元测试并完成 OpenDSS IEEE13 smoke。
 - 代码根目录：`code/`。
 - 方法目录规范：每个方法使用独立的 `code/method-<name>/` 目录，并包含同构的 `src/`、`tests/`、`scripts/`、`data/`、`checkpoint/`、`output/` 和 `logs/` 目录。
 - 代码组织规范：以 `code/CODE_CONVENTIONS.md` 为唯一正文来源。
@@ -14,6 +14,12 @@
 - 状态：待开始。
 - 代码目录：`code/method-a/`。
 - 当前内容：尚未创建业务源代码、测试或运行产物。
+
+### method-a1
+
+- 状态：S0 实现完成，S1/S2 待后续实验。
+- 代码目录：`code/method-a1/`。
+- 当前内容：已接入 OpenDSS 数据生成、TCN+普通拓扑 GNN、A1 候选签名解码、稠密监督、残差定位、检测、训练器和 smoke 入口；15 项测试通过。
 
 ### method-b
 

@@ -206,6 +206,7 @@ def build_dataset(
         "train_idx": train_idx,
         "test_idx": test_idx,
     }
+    output_dir.mkdir(parents=True, exist_ok=True)
     for name, value in arrays.items():
         np.save(output_dir / f"{name}.npy", value)
 
