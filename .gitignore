@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+.pytest_cache/
+
+# Node.js
+node_modules/
+
+# 方法运行数据与实验产物
+code/method-*/data/
+code/method-*/checkpoint/
+code/method-*/output/
+code/method-*/logs/
+
+# 环境变量与敏感信息
+.env
+.env.local
+.env.*.local
+
+# 编辑器与系统文件
+.vscode/
+.DS_Store
+
+# 日志
+*.log
