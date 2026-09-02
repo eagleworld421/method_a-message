@@ -11,6 +11,14 @@
 3. `docs/project/`：已确认的项目目标、技术路线和设计决策（目录按需创建）。
 4. `docs/superpowers/`：Superpowers 设计说明和实施计划（目录按需创建）。
 
+### Method-A1
+
+- `docs/project/method-a1.md`：Method-A1 反事实稠密监督方法的项目入口，包含整体框架、研究目标、统一监督、OpenDSS S0 实现细节、当前结果与后续工作。
+
+- `docs/superpowers/specs/2026-09-02-method-a1-opendss-design.md`：Method-A1 接入 OpenDSS、复用 TCN 与普通拓扑 GNN、重写候选签名解码和验证闭环的首轮实现设计。
+
+- `docs/superpowers/plans/2026-09-02-method-a1-opendss-implementation.md`：按 S0 首轮范围拆分 OpenDSS 签名库、TCN/GNN、A1 解码器、训练、评估和 smoke 验证任务。
+
 每次命中文档后，先读取文件头部摘要，再根据摘要决定是否深入阅读。
 
 ## 检索约束

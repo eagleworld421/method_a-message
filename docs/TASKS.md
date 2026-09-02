@@ -27,3 +27,13 @@
 - 关键决策：根规则使用 AGENTS.md；代码按 code/method-* 同构组织；全部项目文档统一放在 docs/；CODE_CONVENTIONS.md 仅约束 code/。
 - 已知局限：当前仅建立规范骨架，尚无业务代码、测试和运行验证。
 - 状态：待审查
+
+### A1-OPENDSS-001：实现 Method-A1 OpenDSS S0 闭环
+
+- 任务 ID：A1-OPENDSS-001
+- 需求摘要：参考既有 Method-A1 设计，接入 OpenDSS，复用 Method-C 数据生成与 TCN+GNN，完成不含边可信度的 S0 反事实稠密监督实现和初步验证。
+- 分支：agent/RULES-001-project-rules
+- 时间：任务开始 2026-09-02 / 分支创建 2026-09-02 / 合并待定
+- 关键决策：采用 IEEE13 全候选离线动态波形签名库 `[N,T,6]`；保留普通拓扑消息传递 GNN；S0 首轮只使用正确拓扑与全量观测，S1/S2 延后。
+- 已知局限：单次 smoke 定位 Top-1 为 0；尚未开展多种子、多工况及 S1/S2 实验；OpenDSS 依赖本机 COM 注册。
+- 状态：待审查
