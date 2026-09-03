@@ -11,6 +11,7 @@ import torch
 from src.data_generation.dataset_builder import build_dataset, load_dataset
 from src.eval import evaluate_predictions
 from src.model.signature_predictor import A1SignaturePredictor
+from src.plotting import plot_loss_curves
 from src.trainer import A1ArrayDataset, A1Trainer
 
 
@@ -30,27 +31,37 @@ def _build_model(data: dict) -> A1SignaturePredictor:
     )
 
 
-def _evaluate_test(model, dataset, edge_index, edge_attr, edge_mask, device, batch_size, threshold):
+def _evaluate_test(
+    model, dataset, edge_index, edge_attr, edge_mask, device, batch_size,
+    threshold, timing_owner=None,
+):
     """批量计算测试集预测并汇总 S0 指标。"""
     model.eval()
+    previous_phase = getattr(model, "_a1_timing_phase", None)
+    if timing_owner is not None:
+        model._a1_timing_phase = "inference"
     candidates = torch.arange(model.n_nodes + 1, dtype=torch.long, device=device)
     predictions, observed, masks, candidate_batches, y_loc, y_detect = [], [], [], [], [], []
     test_view = A1ArrayDataset(dataset.output_dir, indices=dataset.test_idx)
     loader = torch.utils.data.DataLoader(test_view, batch_size=batch_size, shuffle=False)
-    with torch.no_grad():
-        for batch in loader:
-            x = batch["x_obs"].to(device)
-            batch_candidates = candidates.unsqueeze(0).expand(x.shape[0], -1)
-            pred = model(
-                x, edge_index.to(device), edge_attr.to(device),
-                edge_mask.to(device), batch_candidates,
-            )["signature"]
-            predictions.append(pred.cpu())
-            observed.append(batch["x_full"])
-            masks.append(batch["mask"])
-            candidate_batches.append(batch_candidates.cpu())
-            y_loc.append(batch["y_loc"])
-            y_detect.append(batch["y_detect"])
+    try:
+        with torch.no_grad():
+            for batch in loader:
+                x = batch["x_obs"].to(device)
+                batch_candidates = candidates.unsqueeze(0).expand(x.shape[0], -1)
+                pred = model(
+                    x, edge_index.to(device), edge_attr.to(device),
+                    edge_mask.to(device), batch_candidates,
+                )["signature"]
+                predictions.append(pred.cpu())
+                observed.append(batch["x_full"])
+                masks.append(batch["mask"])
+                candidate_batches.append(batch_candidates.cpu())
+                y_loc.append(batch["y_loc"])
+                y_detect.append(batch["y_detect"])
+    finally:
+        if timing_owner is not None:
+            model._a1_timing_phase = previous_phase
     if not predictions:
         raise RuntimeError("测试集为空，无法完成评估")
     pred = torch.cat(predictions)
@@ -77,6 +88,10 @@ def run_experiment(
     lr: float = 1e-3,
     device: str = "cpu",
     seed: int = 42,
+    patience: int = 10,
+    min_delta: float = 1e-4,
+    lambda_rank: float = 0.0,
+    rank_margin: float = 0.1,
     s0_only: bool = True,
 ) -> dict:
     """运行一次 A1 S0 实验并保存最终报告。"""
@@ -98,6 +113,8 @@ def run_experiment(
         model, dataset, dataset.edge_index, dataset.edge_attr,
         dataset.edge_mask[0], device=device, lr=lr,
         batch_size=batch_size, epochs=epochs, seed=seed,
+        lambda_rank=lambda_rank, margin=rank_margin,
+        patience=patience, min_delta=min_delta,
     )
     checkpoint_path = checkpoint_dir / "model.pt"
     checkpoint_loaded = False
@@ -121,12 +138,29 @@ def run_experiment(
         "case": case, "scenario": "S0", "seed": seed,
         "n_nodes": n_nodes, "n_candidates": n_nodes + 1,
         "window_len": time_steps, "feature_dim": feature_dim,
+        "patience": int(patience), "min_delta": float(min_delta),
+        "lambda_rank": float(lambda_rank), "rank_margin": float(rank_margin),
     }, epoch=trainer.start_epoch, history=history)
+    test_before = trainer.timing.phase_seconds("inference")
     metrics = _evaluate_test(
         model, dataset, trainer.edge_index, trainer.edge_attr,
         trainer.edge_mask, trainer.device, batch_size, threshold=0.0,
+        timing_owner=trainer,
     )
+    final_test_seconds = trainer.timing.phase_seconds("inference") - test_before
     output_dir.mkdir(parents=True, exist_ok=True)
+    loss_plots = plot_loss_curves(history, output_dir)
+    runtime = {
+        "modules": trainer.timing.snapshot(),
+        "validation_seconds": float(getattr(trainer, "validation_seconds", 0.0)),
+        "test_seconds": float(
+            getattr(trainer, "test_seconds", 0.0) + final_test_seconds
+        ),
+        "total_training_seconds": float(
+            trainer.timing.phase_seconds("train_forward")
+            + trainer.timing.phase_seconds("train_backward")
+        ),
+    }
     report = {
         "scenario": "S0",
         "case": case,
@@ -141,6 +175,16 @@ def run_experiment(
         "threshold": 0.0,
         "metrics": metrics,
         "history": history,
+        "loss_history": history,
+        "loss_plots": {name: str(path) for name, path in loss_plots.items()},
+        "best_epoch": history.get("best_epoch"),
+        "epochs_ran": history.get("epochs_ran", 0),
+        "stopped_early": history.get("stopped_early", False),
+        "fault_global_min_rate": metrics.get("fault_global_min_rate", 0.0),
+        "normal_nofault_global_min_rate": metrics.get(
+            "normal_nofault_global_min_rate", 0.0
+        ),
+        "runtime": runtime,
         "data_meta": data["meta"],
         "checkpoint": str(checkpoint_path),
         "checkpoint_loaded": checkpoint_loaded,
@@ -184,15 +228,28 @@ def evaluate_checkpoint(
     for key, value in (("n_nodes", n_nodes), ("window_len", time_steps), ("feature_dim", feature_dim)):
         if key in saved_meta and int(saved_meta[key]) != int(value):
             raise ValueError(f"checkpoint 与当前数据集的 {key} 不一致")
+    test_before = trainer.timing.phase_seconds("inference")
     metrics = _evaluate_test(
         model, dataset, trainer.edge_index, trainer.edge_attr,
         trainer.edge_mask, trainer.device, batch_size, threshold=0.0,
+        timing_owner=trainer,
     )
+    test_seconds = trainer.timing.phase_seconds("inference") - test_before
     report = {
         "scenario": "S0", "case": data["meta"].get("case", "unknown"),
         "n_nodes": int(n_nodes), "n_candidates": int(n_nodes + 1),
         "window_len": int(time_steps), "feature_dim": int(feature_dim),
         "test_size": int(len(dataset.test_idx)), "metrics": metrics,
+        "fault_global_min_rate": metrics.get("fault_global_min_rate", 0.0),
+        "normal_nofault_global_min_rate": metrics.get(
+            "normal_nofault_global_min_rate", 0.0
+        ),
+        "runtime": {
+            "modules": trainer.timing.snapshot(),
+            "validation_seconds": 0.0,
+            "test_seconds": float(test_seconds),
+            "total_training_seconds": 0.0,
+        },
         "checkpoint": str(checkpoint_path),
         "checkpoint_epoch": int(payload.get("epoch", 0)),
     }
@@ -216,6 +273,10 @@ def parse_args():
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--patience", type=int, default=10)
+    parser.add_argument("--min-delta", type=float, default=1e-4)
+    parser.add_argument("--lambda-rank", type=float, default=0.0)
+    parser.add_argument("--rank-margin", type=float, default=0.1)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--s0-only", action="store_true", default=True)
     return parser.parse_args()
@@ -237,7 +298,10 @@ def main():
         data_dir=args.data_dir, output_dir=args.output_dir,
         checkpoint_dir=args.checkpoint_dir, case=args.case,
         samples_per_bus=samples, epochs=epochs, batch_size=args.batch_size,
-        lr=args.lr, device=args.device, seed=args.seed, s0_only=True,
+        lr=args.lr, device=args.device, seed=args.seed,
+        patience=args.patience, min_delta=args.min_delta,
+        lambda_rank=args.lambda_rank, rank_margin=args.rank_margin,
+        s0_only=True,
     )
     print(json.dumps({"scenario": report["scenario"], "metrics": report["metrics"]}, ensure_ascii=False))
 

@@ -60,6 +60,21 @@ def evaluate_predictions(
     y_detect = y_detect.to(device=pred.device).bool()
     pred_loc = candidate_idx.gather(1, detection["pred_loc"].unsqueeze(1)).squeeze(1)
     fault_mask = y_detect & (y_loc >= 0)
+    global_pred_idx = residuals.argmin(dim=1)
+    global_pred = candidate_idx.gather(1, global_pred_idx.unsqueeze(1)).squeeze(1)
+    if fault_mask.any():
+        fault_global_min_rate = (
+            global_pred[fault_mask] == y_loc[fault_mask]
+        ).float().mean().item()
+    else:
+        fault_global_min_rate = 0.0
+    normal_mask = ~y_detect
+    if normal_mask.any():
+        normal_nofault_global_min_rate = (
+            global_pred[normal_mask] == no_fault_idx
+        ).float().mean().item()
+    else:
+        normal_nofault_global_min_rate = 0.0
     if fault_mask.any():
         true_residual = residuals[fault_mask].gather(
             1, (candidate_idx[fault_mask] == y_loc[fault_mask].unsqueeze(1)).float().argmax(dim=1).unsqueeze(1)
@@ -92,6 +107,8 @@ def evaluate_predictions(
         "fault_recall": float(recall),
         "f1": float(f1),
         "residual_margin": float(margin),
+        "fault_global_min_rate": float(fault_global_min_rate),
+        "normal_nofault_global_min_rate": float(normal_nofault_global_min_rate),
         "n_samples": int(pred.shape[0]),
         "n_fault": int(fault_mask.sum().item()),
         "residuals": residuals.detach().cpu().tolist(),

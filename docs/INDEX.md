@@ -1,4 +1,4 @@
-<!-- 摘要：本文档为项目 docs 目录的统一索引，规定文档检索顺序、适用范围和更新约束。 -->
+<!-- 摘要：本文档为项目 docs 目录的统一索引，规定文档检索顺序、适用范围、Method-A1 主题文档和更新约束。 -->
 
 # 项目文档索引
 
@@ -13,7 +13,7 @@
 
 ### Method-A1
 
-- `docs/project/method-a1.md`：Method-A1 反事实稠密监督方法的项目入口，包含整体框架、研究目标、统一监督、OpenDSS S0 实现细节、当前结果与后续工作。
+- `docs/project/method-a1.md`：Method-A1 反事实稠密监督方法的项目入口，包含整体框架、研究目标、统一监督、OpenDSS S0 实现细节、分项损失历史、验证集早停、损失曲线、运行时统计、当前结果与后续工作。
 
 - `docs/superpowers/specs/2026-09-02-method-a1-opendss-design.md`：Method-A1 接入 OpenDSS、复用 TCN 与普通拓扑 GNN、重写候选签名解码和验证闭环的首轮实现设计。
 

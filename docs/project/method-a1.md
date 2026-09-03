@@ -1,5 +1,5 @@
 <!--
-本文档：Method-A1 反事实稠密监督方法的项目文档，汇总研究目标、整体框架、OpenDSS S0 实现细节、验证结果与后续边界。
+本文档：Method-A1 反事实稠密监督方法的项目文档，汇总研究目标、整体框架、OpenDSS S0 实现细节、分项损失历史、验证集早停、损失曲线、运行时统计、验证结果与后续边界。
 触发关键词：method-a1、A1、反事实、稠密监督、签名预测器、上下文污染、故障定位、实现细节
 检索顺序：3
 来源：D:\ds_harness\project\think\docs\superpowers\specs\2026-08-31-A1-反事实稠密监督-design.md；
@@ -15,6 +15,7 @@
 - 方法的研究背景、目标与整体技术框架；
 - 反事实签名的形式化定义和统一监督目标；
 - 数据、模型、训练、推理和评估的实现细节；
+- 分项损失历史、验证集早停、损失曲线和模块运行时统计；
 - S0 初步验证的执行方式、结果与可复现入口；
 - 当前实现的边界、环境依赖和后续实验安排。
 
@@ -202,7 +203,7 @@ P(k\mid X_O,G_{obs})\propto P_{direct}(k\mid X_O,G_{obs})
 
 ### 6.4 训练、残差定位与检测
 
-`src/trainer.py` 使用 Adam 在离线签名库上训练，主损失为全候选 masked MSE，并保留可选 ranking loss 接口。`src/losses.py` 和 `src/eval.py` 分别实现签名损失、候选残差、Top-1/Top-K、真实排名、检测准确率、故障召回率、F1 和残差间隔。`main.py` 负责数据生成、训练、检查点保存和 `output/` 报告生成。
+`src/trainer.py` 使用 Adam 在离线签名库上训练，默认记录签名 MSE，启用 `lambda_rank` 时对故障真实母线和正常样本 `NO_FAULT` 统一施加完整候选排序损失。训练器逐轮记录 train、val、test 分项损失，以 `val_total` 为唯一早停和最佳权重选择指标，并将最佳 epoch、实际运行轮数和早停状态保存到 checkpoint。`src/losses.py` 和 `src/eval.py` 分别实现签名损失、候选残差、Top-1/Top-K、真实排名、检测准确率、故障召回率、F1、残差间隔以及故障/正常全局最小率。`src/plotting.py` 为每种实际损失生成独立的 `loss_<name>.png`；`src/timing.py` 记录 TCN、GNN 和签名预测模块的训练前向、训练反向及推理前向时长。`main.py` 负责数据生成、训练、检查点保存、曲线输出和 `output/` 报告生成。
 
 ## 7. 初步验证范围与结果
 
@@ -254,4 +255,4 @@ python main.py --mode smoke --case ieee13 --samples-per-bus 1 --epochs 1
 python main.py --mode evaluate --data-dir data/s0 --output-dir output/s0-eval --checkpoint-dir checkpoint/s0 --s0-only
 ```
 
-运行前需确认本机已安装并注册 OpenDSS COM 组件（`OpenDSSEngine.DSS`）。数据、检查点和报告分别写入 `data/`、`checkpoint/` 和 `output/`；再次运行时会复用已完成的 checkpoint 或从已保存轮次继续训练，`evaluate` 模式可独立加载 checkpoint 评估测试集。最终交付只从 `output/` 读取。S1/S2 暂无可复现入口，避免将未验证场景误当作当前结论。
+运行前需确认本机已安装并注册 OpenDSS COM 组件（`OpenDSSEngine.DSS`）。数据、检查点和报告分别写入 `data/`、`checkpoint/` 和 `output/`；再次运行时会复用已完成的 checkpoint 或从已保存轮次继续训练，`evaluate` 模式可独立加载 checkpoint 评估测试集且不生成训练曲线。训练模式默认在 `output/` 生成 `loss_signature.png`、`loss_total.png`，启用排序损失后增加 `loss_ranking.png`；报告同时保存 `loss_history`、曲线路径、`fault_global_min_rate`、`normal_nofault_global_min_rate` 和 `runtime` 字段。最终交付只从 `output/` 读取。S1/S2 暂无可复现入口，避免将未验证场景误当作当前结论。
