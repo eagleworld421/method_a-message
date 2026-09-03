@@ -19,7 +19,7 @@
 
 - `docs/superpowers/plans/2026-09-02-method-a1-opendss-implementation.md`：按 S0 首轮范围拆分 OpenDSS 签名库、TCN/GNN、A1 解码器、训练、评估和 smoke 验证任务。
 
-- `docs/superpowers/plans/2026-09-03-method-a1-loss-curves-early-stopping.md`：规划 train/val/test 分项损失记录、验证集早停、checkpoint 状态和按损失类型分别绘图。
+- `docs/superpowers/plans/2026-09-03-method-a1-loss-curves-early-stopping.md`：规划 train/val/test 分项损失记录、验证集早停、checkpoint 状态、按损失类型分别绘图和 TCN/GNN/签名预测模块运行时统计。
 
 每次命中文档后，先读取文件头部摘要，再根据摘要决定是否深入阅读。
 
