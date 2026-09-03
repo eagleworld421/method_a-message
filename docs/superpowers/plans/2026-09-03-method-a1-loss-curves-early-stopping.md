@@ -20,6 +20,8 @@
 
 - 首轮范围仍为 IEEE13、S0、正确拓扑、全量观测；不新增 S1/S2 训练或评估逻辑。
 - 当前已实现的 `masked_signature_mse` 和可选 `ranking_loss` 均保留；默认 `lambda_rank=0.0` 不变。
+- 重新启用 ranking loss 时，故障样本的正候选为 `y_loc`，正常样本的正候选为 `NO_FAULT=n_nodes`；两类样本都必须参与排序监督。
+- ranking loss 对每个样本的完整候选集合施加 pairwise margin，目标是故障母线或 `NO_FAULT` 的残差成为全局最小；该目标同时通过 `fault_global_min_rate` 和 `normal_nofault_global_min_rate` 验证。
 - 早停监控指标固定为验证集总损失 `val_total`；测试损失只用于记录和绘图，绝不参与早停、最佳模型选择或参数调节。
 - 每个损失名称独立绘图；总损失始终单独成图，不与签名损失或排序损失共用图。
 - 测试集损失按每个 epoch 计算以形成曲线，但不反向传播、不更新参数、不影响 checkpoint 选择。
@@ -29,6 +31,23 @@
 - 每个模块同时保存总秒数、调用次数、平均每次调用毫秒数和平均每样本毫秒数；计时默认启用，不能改变 S0 的损失和模型决策。
 - `code/**/*.py` 的模块 docstring、函数/类 docstring、注释和 TODO/FIXME/NOTE 使用中文。
 - 生成的图片和 JSON 只写入 `code/method-a1/output/`；测试临时图片写入 pytest 临时目录。
+
+### Ranking supervision contract
+
+统一定义排序目标：
+
+```text
+target_candidate = y_loc                    当 y_detect == 1
+target_candidate = NO_FAULT = n_nodes       当 y_detect == 0
+```
+
+对完整候选集合 `C={0,...,n_nodes}`，每个样本的排序约束为：
+
+```text
+r(target_candidate) + margin <= r(c),  对所有 c != target_candidate
+```
+
+因此故障样本同时压低真实母线相对于其他母线和 `NO_FAULT` 的残差；正常样本压低 `NO_FAULT` 相对于全部故障母线的残差。排序损失为零只表示满足 margin 约束，最终仍需报告两个全局最小率指标。
 
 ---
 
@@ -53,7 +72,7 @@
 - Test: `code/method-a1/tests/test_trainer.py`
 
 **Interfaces:**
-- `A1Trainer._compute_loss_components(out, batch, batch_candidates) -> dict[str, torch.Tensor]`：返回未加权的分项损失，当前至少包含 `signature`；当 `lambda_rank > 0` 且批次包含故障样本时包含 `ranking`。
+- `A1Trainer._compute_loss_components(out, batch, batch_candidates) -> dict[str, torch.Tensor]`：返回未加权的分项损失，当前至少包含 `signature`；当 `lambda_rank > 0` 时对故障和正常样本统一计算 `ranking`。
 - `A1Trainer._weighted_total(components: dict[str, torch.Tensor]) -> torch.Tensor`：按 `lambda_sim`、`lambda_rank` 计算 `total`。
 - `A1Trainer._run_epoch(loader, train: bool) -> dict[str, float]`：返回当前数据划分的各项平均损失，包括 `signature`、可选 `ranking` 和 `total`。
 - `history` 结构固定为：
@@ -87,6 +106,12 @@ def test_ranking_loss_adds_named_component_when_enabled(...):
     result = trainer._run_epoch(loader, train=False)
     assert "ranking" in result
     assert result["total"] >= result["signature"]
+
+def test_normal_samples_use_no_fault_as_ranking_target(...):
+    target = trainer._ranking_targets(
+        y_detect=torch.tensor([0]), y_loc=torch.tensor([-1])
+    )
+    assert target.tolist() == [trainer.model.no_fault_idx]
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -97,7 +122,7 @@ Expected: FAIL because `_run_epoch` currently returns a scalar，而不是按名
 
 - [ ] **Step 3: Implement the minimal loss-component interface**
 
-将当前 `_run_epoch` 中的损失计算拆为 `_compute_loss_components` 和 `_weighted_total`。`signature` 使用现有 `masked_signature_mse`；`ranking` 仅在 `lambda_rank > 0` 且 `y_detect.any()` 时计算；缺失的可选分量不写入该批次结果。按样本数加权平均各分量和总损失，避免最后一个小批次改变 epoch 平均值。
+将当前 `_run_epoch` 中的损失计算拆为 `_compute_loss_components` 和 `_weighted_total`，并增加 `_ranking_targets(y_detect, y_loc) -> torch.Tensor`。`signature` 使用现有 `masked_signature_mse`；`ranking` 在 `lambda_rank > 0` 时对整个 batch 计算，故障样本取 `y_loc`，正常样本取 `model.no_fault_idx`；缺失的可选分量不写入该批次结果。按样本数加权平均各分量和总损失，避免最后一个小批次改变 epoch 平均值。
 
 - [ ] **Step 4: Run focused tests**
 
@@ -135,6 +160,12 @@ def test_fit_records_train_val_test_for_each_epoch(...):
         assert len(history[split]["signature"]) == 2
         assert len(history[split]["total"]) == 2
         assert all(np.isfinite(history[split]["total"]))
+
+def test_fit_records_ranking_for_fault_and_normal_samples_when_enabled(...):
+    trainer.lambda_rank = 0.1
+    history = trainer.fit()
+    for split in ("train", "val", "test"):
+        assert "ranking" in history[split]
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -145,7 +176,7 @@ Expected: FAIL because当前历史只有 `train_loss` 和 `val_loss`，没有 te
 
 - [ ] **Step 3: Implement epoch history**
 
-在 `fit()` 中构造测试 DataLoader；每轮顺序固定为 train、val、test。测试阶段包裹 `torch.no_grad()`，调用同一 `_run_epoch(..., train=False)`。将每个 split 返回的键合并到历史结构；没有 `ranking` 的默认 S0 历史不创建空的 ranking 数组，只有启用该损失后才出现该键。测试分支仅记录，不参与 `best_val` 比较。
+在 `fit()` 中构造测试 DataLoader；每轮顺序固定为 train、val、test。测试阶段包裹 `torch.no_grad()`，调用同一 `_run_epoch(..., train=False)`。将每个 split 返回的键合并到历史结构；没有 `ranking` 的默认 S0 历史不创建空的 ranking 数组，只有启用该损失后才出现该键。启用 ranking 时，train/val/test 三个 split 都必须包含故障和正常样本的统一排序损失。测试分支仅记录，不参与 `best_val` 比较。
 
 - [ ] **Step 4: Run focused tests**
 
@@ -410,9 +441,9 @@ git commit -m "feat(method-a1): record module runtime statistics"
 - Modify: `code/method-a1/README.md`
 
 **Interfaces:**
-- `run_experiment(..., patience: int = 10, min_delta: float = 1e-4) -> dict`。
-- CLI 新增 `--patience` 和 `--min-delta`；`--patience 0` 表示关闭早停。
-- `report.json` 新增 `loss_history`、`loss_plots`、`best_epoch`、`epochs_ran` 和 `stopped_early`；保留原有 `history` 字段并使其指向同一历史对象。
+- `run_experiment(..., patience: int = 10, min_delta: float = 1e-4, lambda_rank: float = 0.0, rank_margin: float = 0.1) -> dict`。
+- CLI 新增 `--patience`、`--min-delta`、`--lambda-rank` 和 `--rank-margin`；`--patience 0` 表示关闭早停，`--lambda-rank 0` 表示关闭排序监督。
+- `report.json` 新增 `loss_history`、`loss_plots`、`best_epoch`、`epochs_ran`、`stopped_early`、`fault_global_min_rate` 和 `normal_nofault_global_min_rate`；保留原有 `history` 字段并使其指向同一历史对象。
 - `loss_plots` 使用 JSON 字符串路径，例如 `{"signature": "output/s0/loss_signature.png", "total": "output/s0/loss_total.png"}`。
 - `report.json` 新增 `runtime.modules`、`runtime.validation_seconds`、`runtime.test_seconds` 和 `runtime.total_training_seconds`；`runtime.modules` 固定包含 `tcn`、`gnn`、`signature` 三项，每项包含训练前向、训练反向、推理前向的总时长、调用次数、平均调用毫秒数和平均每样本毫秒数。
 
@@ -427,6 +458,11 @@ def test_smoke_writes_separate_loss_plots_and_early_stop_fields(...):
     assert "stopped_early" in report
     assert set(report["runtime"]["modules"]) == {"tcn", "gnn", "signature"}
     assert report["runtime"]["modules"]["tcn"]["train_forward_seconds"] >= 0.0
+
+def test_smoke_reports_fault_and_normal_global_minimum_rates(...):
+    report = run_experiment(..., lambda_rank=0.1, rank_margin=0.1)
+    assert 0.0 <= report["fault_global_min_rate"] <= 1.0
+    assert 0.0 <= report["normal_nofault_global_min_rate"] <= 1.0
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -437,7 +473,7 @@ Expected: FAIL because主入口尚未接收早停参数、不会绘制损失图�
 
 - [ ] **Step 3: Implement CLI and report integration**
 
-在 `main.py` 中将 `patience`、`min_delta` 传给 `A1Trainer`，训练完成后调用 `plot_loss_curves(history, output_dir)`，并把 `TimingAggregator.snapshot()` 写入报告。`evaluate` 模式不绘制训练曲线，但应记录测试阶段 TCN/GNN/签名推理时长；只有训练模式生成损失图。README 增加当前默认两张图和启用 `lambda_rank` 后增加第三张图的说明，并说明测试曲线不参与早停以及模块运行时字段的含义。
+在 `main.py` 中将 `patience`、`min_delta`、`lambda_rank`、`rank_margin` 传给 `A1Trainer`，训练完成后调用 `plot_loss_curves(history, output_dir)`，并把 `TimingAggregator.snapshot()` 写入报告。评估阶段根据测试样本的残差分别计算故障母线全局最小率和正常样本 `NO_FAULT` 全局最小率。`evaluate` 模式不绘制训练曲线，但应记录测试阶段 TCN/GNN/签名推理时长；只有训练模式生成损失图。README 增加当前默认两张图和启用 `lambda_rank` 后增加第三张图的说明，并说明测试曲线不参与早停以及模块运行时字段的含义。
 
 - [ ] **Step 4: Run smoke and focused tests**
 
@@ -493,6 +529,8 @@ git commit -m "docs(method-a1): document early stopping and loss plots"
 - [ ] 默认 S0 训练历史包含 `train/val/test` 三个 split。
 - [ ] 默认 `lambda_rank=0` 时生成 `loss_signature.png` 和 `loss_total.png`。
 - [ ] 启用 ranking loss 后自动生成 `loss_ranking.png`，不改变其他图。
+- [ ] 启用 ranking loss 后，故障样本目标为真实故障母线，正常样本目标为 `NO_FAULT`。
+- [ ] 评估报告包含 `fault_global_min_rate` 和 `normal_nofault_global_min_rate`。
 - [ ] 早停只监控 `val_total`，并恢复最佳模型权重。
 - [ ] 测试损失只记录和绘图，不参与训练决策。
 - [ ] checkpoint 可恢复损失历史、epoch 和早停状态。
