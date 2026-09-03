@@ -135,8 +135,12 @@ checkpoint 包含 `state_dict`、`optimizer_state_dict`、`epoch`、完整 `hist
 
 - `data/`：OpenDSS 生成的输入、标签、拓扑和全候选签名库；
 - `checkpoint/`：模型参数和训练状态；
-- `output/`：`report.json`、S0 汇总指标、训练历史和按损失名称生成的 PNG 曲线；
+- `output/`：`report.json`、`scenario_summary.json`、`metrics_detail.json`、训练历史和按损失名称生成的 PNG 曲线；
 - `logs/`：运行日志（如需）。
+
+`report.json` 和 `scenario_summary.json` 的 `metrics` 只保留标量汇总指标。逐测试样本的 `residuals`、`pred_loc`、`pred_detect` 和 `d` 保存在同目录的 `metrics_detail.json`，其中 `_comments` 字段说明每个详细字段的含义、形状和索引规则；`report.json` 的 `metrics_detail_file` 字段记录该文件名。
+
+损失曲线由内存中的 `history` 直接绘制，`train_loss.json` 是训练历史的持久化副本，不是绘图函数读取的输入文件。
 
 `report.json` 中的 `runtime.modules` 固定包含 `tcn`、`gnn` 和 `signature`。各模块分别记录训练前向、训练反向和推理前向的总秒数、调用次数、平均调用毫秒数及平均每样本毫秒数；`validation_seconds`、`test_seconds` 和 `total_training_seconds` 用于拆分效率分析。计时边界不包含 DataLoader、残差汇总和文件写入，CUDA 计时在边界处执行设备同步。
 
