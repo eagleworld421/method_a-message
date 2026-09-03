@@ -15,6 +15,8 @@
 
 - `docs/project/method-a1.md`：Method-A1 反事实稠密监督方法的项目入口，包含整体框架、研究目标、统一监督、OpenDSS S0 实现细节、分项损失历史、验证集早停、损失曲线、运行时统计、当前结果与后续工作。
 
+- `docs/project/method-a1-status.md`：Method-A1 当前阶段、已实现与验证证据、实验基线、契约缺口、局限、阻塞项和下一阶段决策；不承载工作日志或逐次运行记录。
+
 - `docs/superpowers/specs/2026-09-02-method-a1-opendss-design.md`：Method-A1 接入 OpenDSS、复用 TCN 与普通拓扑 GNN、重写候选签名解码和验证闭环的首轮实现设计。
 
 - `docs/superpowers/plans/2026-09-02-method-a1-opendss-implementation.md`：按 S0 首轮范围拆分 OpenDSS 签名库、TCN/GNN、A1 解码器、训练、评估和 smoke 验证任务。
