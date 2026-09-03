@@ -50,6 +50,18 @@ def test_mock_s0_experiment_writes_report(tmp_path, monkeypatch):
     loaded = json.loads(path.read_text(encoding="utf-8"))
     assert loaded["scenario"] == "S0"
     assert "node_top1" in loaded["metrics"]
+    detail_path = tmp_path / "output" / "metrics_detail.json"
+    summary_path = tmp_path / "output" / "scenario_summary.json"
+    assert loaded["metrics_detail_file"] == "metrics_detail.json"
+    assert detail_path.exists()
+    details = json.loads(detail_path.read_text(encoding="utf-8"))
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    for field in ("residuals", "pred_loc", "pred_detect", "d"):
+        assert field not in loaded["metrics"]
+        assert field not in summary["S0"]
+        assert field in details
+        assert field in details["_comments"]
+    assert set(details["_comments"]) >= {"residuals", "pred_loc", "pred_detect", "d"}
     assert report["scenario"] == "S0"
     assert set(report["loss_plots"]) == {"signature", "total"}
     assert all(Path(path).exists() for path in report["loss_plots"].values())
@@ -181,3 +193,8 @@ def test_checkpoint_supports_independent_evaluation(tmp_path, monkeypatch):
     )
     assert report["scenario"] == "S0"
     assert (tmp_path / "eval-output" / "report.json").exists()
+    assert report["metrics_detail_file"] == "metrics_detail.json"
+    details = json.loads((tmp_path / "eval-output" / "metrics_detail.json").read_text(encoding="utf-8"))
+    loaded = json.loads((tmp_path / "eval-output" / "report.json").read_text(encoding="utf-8"))
+    assert "residuals" not in loaded["metrics"]
+    assert "residuals" in details

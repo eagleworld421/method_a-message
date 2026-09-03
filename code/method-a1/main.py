@@ -15,6 +15,46 @@ from src.plotting import plot_loss_curves
 from src.trainer import A1ArrayDataset, A1Trainer
 
 
+_DETAIL_METRIC_FIELDS = ("residuals", "pred_loc", "pred_detect", "d")
+_DETAIL_METRIC_COMMENTS = {
+    "residuals": (
+        "逐测试样本、逐候选的归一化残差，形状为 [n_samples, n_candidates]；"
+        "候选索引 0 到 n_nodes-1 为故障候选，n_nodes 为 NO_FAULT。"
+    ),
+    "pred_loc": "逐测试样本的预测故障位置；仅在故障候选中选择残差最小者。",
+    "pred_detect": "逐测试样本的故障检测结果；true 表示判定为故障，false 表示无故障。",
+    "d": (
+        "逐测试样本的检测差值 d = r(NO_FAULT) - min(r(fault_candidates))；"
+        "当 d > threshold 时判定为故障。"
+    ),
+}
+
+
+def _split_metrics(metrics: dict) -> tuple[dict, dict]:
+    """拆分汇总指标和逐样本详细指标。"""
+    summary = {
+        name: value for name, value in metrics.items()
+        if name not in _DETAIL_METRIC_FIELDS
+    }
+    details = {
+        "_comments": dict(_DETAIL_METRIC_COMMENTS),
+    }
+    for name in _DETAIL_METRIC_FIELDS:
+        if name in metrics:
+            details[name] = metrics[name]
+    return summary, details
+
+
+def _write_metric_details(output_dir: Path, metrics: dict) -> tuple[dict, str]:
+    """写入逐样本指标文件并返回汇总指标和相对文件名。"""
+    summary, details = _split_metrics(metrics)
+    detail_path = output_dir / "metrics_detail.json"
+    detail_path.write_text(
+        json.dumps(details, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return summary, detail_path.name
+
+
 def _set_seed(seed: int) -> None:
     """设置 NumPy 和 PyTorch 的可复现随机种子。"""
     np.random.seed(seed)
@@ -153,6 +193,7 @@ def run_experiment(
     final_test_seconds = trainer.timing.phase_seconds("inference") - test_before
     output_dir.mkdir(parents=True, exist_ok=True)
     loss_plots = plot_loss_curves(history, output_dir)
+    summary_metrics, metrics_detail_file = _write_metric_details(output_dir, metrics)
     runtime = {
         "modules": trainer.timing.snapshot(),
         "validation_seconds": float(getattr(trainer, "validation_seconds", 0.0)),
@@ -176,15 +217,16 @@ def run_experiment(
         "val_size": history["val_size"],
         "test_size": int(len(dataset.test_idx)),
         "threshold": 0.0,
-        "metrics": metrics,
+        "metrics": summary_metrics,
+        "metrics_detail_file": metrics_detail_file,
         "history": history,
         "loss_history": history,
         "loss_plots": {name: str(path) for name, path in loss_plots.items()},
         "best_epoch": history.get("best_epoch"),
         "epochs_ran": history.get("epochs_ran", 0),
         "stopped_early": history.get("stopped_early", False),
-        "fault_global_min_rate": metrics.get("fault_global_min_rate", 0.0),
-        "normal_nofault_global_min_rate": metrics.get(
+        "fault_global_min_rate": summary_metrics.get("fault_global_min_rate", 0.0),
+        "normal_nofault_global_min_rate": summary_metrics.get(
             "normal_nofault_global_min_rate", 0.0
         ),
         "runtime": runtime,
@@ -199,7 +241,7 @@ def run_experiment(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     (output_dir / "scenario_summary.json").write_text(
-        json.dumps({"S0": metrics}, ensure_ascii=False, indent=2), encoding="utf-8"
+        json.dumps({"S0": summary_metrics}, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     (output_dir / "train_loss.json").write_text(
         json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -238,13 +280,16 @@ def evaluate_checkpoint(
         timing_owner=trainer,
     )
     test_seconds = trainer.timing.phase_seconds("inference") - test_before
+    output_dir.mkdir(parents=True, exist_ok=True)
+    summary_metrics, metrics_detail_file = _write_metric_details(output_dir, metrics)
     report = {
         "scenario": "S0", "case": data["meta"].get("case", "unknown"),
         "n_nodes": int(n_nodes), "n_candidates": int(n_nodes + 1),
         "window_len": int(time_steps), "feature_dim": int(feature_dim),
-        "test_size": int(len(dataset.test_idx)), "metrics": metrics,
-        "fault_global_min_rate": metrics.get("fault_global_min_rate", 0.0),
-        "normal_nofault_global_min_rate": metrics.get(
+        "test_size": int(len(dataset.test_idx)), "metrics": summary_metrics,
+        "metrics_detail_file": metrics_detail_file,
+        "fault_global_min_rate": summary_metrics.get("fault_global_min_rate", 0.0),
+        "normal_nofault_global_min_rate": summary_metrics.get(
             "normal_nofault_global_min_rate", 0.0
         ),
         "runtime": {
@@ -256,7 +301,6 @@ def evaluate_checkpoint(
         "checkpoint": str(checkpoint_path),
         "checkpoint_epoch": int(payload.get("epoch", 0)),
     }
-    output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
     )
