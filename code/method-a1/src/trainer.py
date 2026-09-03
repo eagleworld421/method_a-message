@@ -1,5 +1,6 @@
 """A1 离线数组数据集、训练循环和 checkpoint 管理。"""
 
+import copy
 import json
 from pathlib import Path
 
@@ -324,6 +325,7 @@ class A1Trainer:
         history["monitor"] = self.monitor
         best_val = float("inf")
         best_state = None
+        best_optimizer_state = None
         if history["val"].get("total"):
             best_val = min(float(value) for value in history["val"]["total"])
             if history.get("best_epoch") is None:
@@ -333,6 +335,7 @@ class A1Trainer:
                 key: value.detach().cpu().clone()
                 for key, value in self.model.state_dict().items()
             }
+            best_optimizer_state = copy.deepcopy(self.optimizer.state_dict())
         wait_count = int(self._early_stop_wait)
         stopped_early = False
         self.validation_seconds = 0.0
@@ -360,6 +363,7 @@ class A1Trainer:
                     key: value.detach().cpu().clone()
                     for key, value in self.model.state_dict().items()
                 }
+                best_optimizer_state = copy.deepcopy(self.optimizer.state_dict())
                 history["best_epoch"] = int(epoch)
             else:
                 wait_count += 1
@@ -372,6 +376,8 @@ class A1Trainer:
         self._early_stop_wait = wait_count
         if best_state is not None:
             self.model.load_state_dict(best_state)
+        if best_optimizer_state is not None:
+            self.optimizer.load_state_dict(best_optimizer_state)
         if history["epochs"]:
             self.start_epoch = int(history["epochs"][-1]) + 1
         self.history = history
@@ -393,6 +399,9 @@ class A1Trainer:
             "best_val_loss": history.get("best_val_loss", float("inf")),
             "epochs_ran": history.get("epochs_ran", 0),
             "stopped_early": history.get("stopped_early", False),
+            "lambda_sim": float(self.lambda_sim),
+            "lambda_rank": float(self.lambda_rank),
+            "margin": float(self.margin),
             "patience": int(self.patience),
             "min_delta": float(self.min_delta),
             "monitor": self.monitor,
@@ -422,5 +431,8 @@ class A1Trainer:
         self.patience = int(payload.get("patience", self.patience))
         self.min_delta = float(payload.get("min_delta", self.min_delta))
         self.monitor = str(payload.get("monitor", self.monitor))
+        self.lambda_sim = float(payload.get("lambda_sim", self.lambda_sim))
+        self.lambda_rank = float(payload.get("lambda_rank", self.lambda_rank))
+        self.margin = float(payload.get("margin", self.margin))
         self._early_stop_wait = int(payload.get("early_stop_wait", 0))
         return payload

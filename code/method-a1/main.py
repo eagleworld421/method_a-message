@@ -125,6 +125,9 @@ def run_experiment(
         for key, value in (("n_nodes", n_nodes), ("window_len", time_steps), ("feature_dim", feature_dim)):
             if key in saved_meta and int(saved_meta[key]) != int(value):
                 raise ValueError(f"checkpoint 与当前数据集的 {key} 不一致")
+        for key, value in (("lambda_rank", lambda_rank), ("rank_margin", rank_margin)):
+            if key in saved_meta and not np.isclose(float(saved_meta[key]), float(value)):
+                raise ValueError(f"checkpoint 与当前训练配置的 {key} 不一致")
         checkpoint_loaded = True
     if trainer.start_epoch < epochs:
         history = trainer.fit()

@@ -1,6 +1,7 @@
 """验证 A1 数组数据集和训练器。"""
 
 import json
+import copy
 
 import numpy as np
 import torch
@@ -202,3 +203,56 @@ def test_checkpoint_round_trip_preserves_loss_history_and_early_stop_state(tmp_p
     assert "stopped_early" in payload["history"]
     assert payload["patience"] == trainer.patience
     assert payload["min_delta"] == trainer.min_delta
+
+
+def test_checkpoint_restores_ranking_configuration(tmp_path):
+    """checkpoint 续训应保持排序损失权重和 margin 配置。"""
+    trainer = _make_tiny_trainer(tmp_path, epochs=1, lambda_rank=0.2)
+    trainer.margin = 0.3
+    history = trainer.fit()
+    checkpoint = tmp_path / "checkpoint" / "model.pt"
+    trainer.save_checkpoint(checkpoint, {"scenario": "S0"}, history=history)
+    restored = _make_tiny_trainer(tmp_path, epochs=2, lambda_rank=0.0)
+    restored.load_checkpoint(checkpoint)
+    assert restored.lambda_rank == 0.2
+    assert restored.margin == 0.3
+
+
+def test_checkpoint_optimizer_matches_restored_best_weights(tmp_path, monkeypatch):
+    """checkpoint 的优化器状态应与恢复的验证集最佳权重一致。"""
+    trainer = _make_tiny_trainer(tmp_path, epochs=3)
+    trainer.patience = 0
+    monkeypatch.setattr(trainer, "_normal_embedding", lambda indices: None)
+    original_run_epoch = trainer._run_epoch
+    best_optimizer = None
+    val_values = iter([1.0, 2.0, 3.0])
+    non_train_calls = 0
+
+    def fake_run_epoch(loader, train):
+        """保留真实训练更新，同时提供确定的验证损失序列。"""
+        nonlocal best_optimizer, non_train_calls
+        if train:
+            result = original_run_epoch(loader, train=True)
+            if best_optimizer is None:
+                best_optimizer = copy.deepcopy(trainer.optimizer.state_dict())
+            return result
+        if non_train_calls % 2 == 0:
+            value = next(val_values)
+        else:
+            value = 100.0
+        non_train_calls += 1
+        return {"signature": value, "total": value}
+
+    monkeypatch.setattr(trainer, "_run_epoch", fake_run_epoch)
+    history = trainer.fit()
+    assert history["best_epoch"] == 0
+    actual_state = trainer.optimizer.state_dict()["state"]
+    assert actual_state.keys() == best_optimizer["state"].keys()
+    for key, value in best_optimizer["state"].items():
+        actual_value = actual_state[key]
+        assert actual_value.keys() == value.keys()
+        for field, expected in value.items():
+            if isinstance(expected, torch.Tensor):
+                assert torch.equal(actual_value[field], expected)
+            else:
+                assert actual_value[field] == expected
