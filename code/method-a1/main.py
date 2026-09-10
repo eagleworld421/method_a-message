@@ -339,8 +339,8 @@ def parse_args():
         type=Path,
         default=Path("output/s0-spb50-rk/report.json"),
     )
-    parser.add_argument("--stage-b-epochs", type=int, default=10)
-    parser.add_argument("--stage-c-epochs", type=int, default=10)
+    parser.add_argument("--stage-b-epochs", type=int, default=100)
+    parser.add_argument("--stage-c-epochs", type=int, default=100)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--top-k", type=int, default=3)
     parser.add_argument("--threshold", type=float, default=0.0)

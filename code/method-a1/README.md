@@ -170,9 +170,11 @@ python main.py --mode z --device cpu
 - `--stage-a-checkpoint checkpoint/s0-spb50-rk/model.pt`；
 - `--output-dir output/z-route1`；
 - `--checkpoint-dir checkpoint/z-route1`；
-- `--stage-b-epochs 10`；
-- `--stage-c-epochs 10`；
+- `--stage-b-epochs 100`；
+- `--stage-c-epochs 100`；
 - `--seed 42`。
+
+阶段 B 和阶段 C 均使用 patience 3 的早停：最大 100 epoch，但连续 3 个 epoch 验证集总损失没有严格改善时提前停止，因此 100 是上限而不是固定训练轮数。最佳 checkpoint 的选择仍按硬门和诊断指标执行，早停只控制训练轮数。
 
 中断续训使用：
 

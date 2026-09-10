@@ -192,8 +192,10 @@ k^- = \arg\min_{j \neq k^+} d_S(S_j,X).
 - 优化器：Adam；
 - 学习率：\(10^{-3}\)；
 - batch size：8；
-- 最大 epoch：10；
-- patience：3；
+- 最大 epoch：100；
+- patience：3；训练由早停控制，100 为上限而非固定轮数；
+- 早停监控验证集总损失，连续 3 个 epoch 没有严格改善时提前停止；
+- best checkpoint 仍按硬门和诊断指标选择，早停不改变模型选择规则；
 - margin：逐样本 physical gap，即
   \[
   m_b=\max(\Delta_{\mathrm{phys},b},0),
@@ -365,8 +367,10 @@ E(S)=S.
 - 预测器学习率：\(10^{-4}\)；
 - Eθ 学习率：\(10^{-4}\)；
 - batch size：8；
-- 最大 epoch：10；
-- patience：3；
+- 最大 epoch：100；
+- patience：3；训练由早停控制，100 为上限而非固定轮数；
+- 早停监控验证集总损失，连续 3 个 epoch 没有严格改善时提前停止；
+- best checkpoint 仍按硬门和 validation Z Top-1 选择，早停不改变模型选择规则；
 - 损失权重：
   \[
   \alpha=1.0,\quad \beta=1.0,\quad \gamma=0.1,
@@ -511,8 +515,8 @@ main.py --mode z
 - `--output-dir output/z-route1`；
 - `--checkpoint-dir checkpoint/z-route1`；
 - `--seed 42`；
-- `--stage-b-epochs 10`；
-- `--stage-c-epochs 10`。
+- `--stage-b-epochs 100`；
+- `--stage-c-epochs 100`；两阶段均由 patience 3 早停控制实际轮数。
 
 旧的 `smoke/benchmark/evaluate` 行为必须保持兼容。
 
@@ -521,11 +525,8 @@ main.py --mode z
 严格区分三个层次：
 
 1. Implementation Gate：单元测试和 mock smoke 全部通过；
-2. Experiment Gate：使用真实 `data/s0-spb50` 运行完整：
-   \[
-   10\ \text{epoch Stage B}+10\ \text{epoch Stage C},
-   \]
-   seed 42；
+2. Experiment Gate：使用真实 `data/s0-spb50` 运行阶段 B/阶段 C：
+   两阶段最大 100 epoch、patience 3 早停，记录实际早停轮数；seed 42；
 3. Route Validity Gate：满足文档要求的 \(\ge 3\) 个随机种子，且改善方向和 Oracle 保真方向一致。
 
 三个结论必须严格区分：
@@ -582,7 +583,7 @@ main.py --mode z
 - Oracle 训练集报告：仅 debug；
 - 原 `report.json`：不修改；
 - checkpoint：阶段 B/C 各 best + last，支持 resume；
-- 正式实现验收：unit + mock smoke + seed 42 全量 10+10；
+- 正式实现验收：unit + mock smoke + seed 42 训练，阶段 B/C 上限 100 epoch、patience 3 早停；
 - 路线有效性结论：至少 3 个随机种子。
 
 ## 八、最终补充确认

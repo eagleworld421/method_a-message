@@ -43,8 +43,8 @@ class ZRoute1Trainer:
         device: str = "cpu",
         checkpoint_dir: Path = Path("checkpoint/z-route1"),
         batch_size: int = 8,
-        stage_b_epochs: int = 10,
-        stage_c_epochs: int = 10,
+        stage_b_epochs: int = 100,
+        stage_c_epochs: int = 100,
         stage_b_lr: float = 1e-3,
         stage_c_lr: float = 1e-4,
         stage_c_predictor_lr: float = 1e-4,
@@ -61,6 +61,7 @@ class ZRoute1Trainer:
         l_max: float = 1.0,
         patience_b: int = 3,
         patience_c: int = 3,
+        early_stop_min_delta: float = 0.0,
         tie_tolerance: float = 1e-6,
         s_top1_tolerance: float = 0.05,
         threshold: float = 0.0,
@@ -96,6 +97,7 @@ class ZRoute1Trainer:
         self.l_max = float(l_max)
         self.patience_b = int(patience_b)
         self.patience_c = int(patience_c)
+        self.early_stop_min_delta = float(early_stop_min_delta)
         self.tie_tolerance = float(tie_tolerance)
         self.s_top1_tolerance = float(s_top1_tolerance)
         self.threshold = float(threshold)
@@ -470,7 +472,8 @@ class ZRoute1Trainer:
         best_val_loss = float("inf")
         best_state = None
         best_epoch = None
-        wait = 0
+        early_stop_best = float("inf")
+        early_stop_wait = 0
         for epoch in range(self.start_epoch_b, self.stage_b_epochs):
             train_result = self._run_stage_b_epoch(train_loader, train=True)
             val_result = self._run_stage_b_epoch(val_loader, train=False)
@@ -496,7 +499,11 @@ class ZRoute1Trainer:
                     best_val_loss = val_total
                     best_epoch = int(epoch)
                     best_state = copy.deepcopy(self.encoder.state_dict())
-            wait = 0 if improved else wait + 1
+            if val_total < early_stop_best - self.early_stop_min_delta:
+                early_stop_best = val_total
+                early_stop_wait = 0
+            else:
+                early_stop_wait += 1
             self.save_stage_checkpoint(
                 "B", "last", epoch + 1, history, best_metric
             )
@@ -504,7 +511,7 @@ class ZRoute1Trainer:
                 self.save_stage_checkpoint(
                     "B", "best", epoch + 1, history, best_metric
                 )
-            if wait >= self.patience_b:
+            if early_stop_wait >= self.patience_b:
                 history["stopped_early"] = True
                 break
         if best_state is None:
@@ -554,7 +561,8 @@ class ZRoute1Trainer:
         best_ratio = float("inf")
         best_state = None
         best_epoch = None
-        wait = 0
+        early_stop_best = float("inf")
+        early_stop_wait = 0
         for epoch in range(self.start_epoch_c, self.stage_c_epochs):
             train_result = self._run_stage_c_epoch(train_loader, train=True)
             val_result = self._run_stage_c_epoch(val_loader, train=False)
@@ -562,6 +570,7 @@ class ZRoute1Trainer:
             gates = self._hard_gates(evaluation, reference_s_top1=reference_s_top1)
             metric = float(evaluation["metrics"]["summary"]["z"]["node_top1"])
             ratio = float(evaluation["metrics"]["summary"]["rho_ratio_median"])
+            val_total = float(val_result["total"])
             history["epochs"].append(int(epoch))
             self._append_history(history, "train", train_result)
             self._append_history(history, "val", val_result)
@@ -583,11 +592,15 @@ class ZRoute1Trainer:
                         "predictor": copy.deepcopy(self.predictor.state_dict()),
                         "encoder": copy.deepcopy(self.encoder.state_dict()),
                     }
-            wait = 0 if improved else wait + 1
+            if val_total < early_stop_best - self.early_stop_min_delta:
+                early_stop_best = val_total
+                early_stop_wait = 0
+            else:
+                early_stop_wait += 1
             self.save_stage_checkpoint("C", "last", epoch + 1, history, best_metric)
             if improved:
                 self.save_stage_checkpoint("C", "best", epoch + 1, history, best_metric)
-            if wait >= self.patience_c:
+            if early_stop_wait >= self.patience_c:
                 history["stopped_early"] = True
                 break
         if best_state is None:
