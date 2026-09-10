@@ -89,6 +89,25 @@ def _rank_of_true_candidate(residuals: torch.Tensor, true_idx: torch.Tensor) -> 
     return (order == true_idx.unsqueeze(1)).float().argmax(dim=1)
 
 
+def _spearman_across_candidates(
+    first: torch.Tensor,
+    second: torch.Tensor,
+) -> torch.Tensor:
+    """逐样本计算两个候选 residual 排序的 Spearman 相关。"""
+    if first.shape != second.shape or first.ndim != 2:
+        raise ValueError("first 和 second 必须为相同的 [B,C]")
+    rank_first = first.argsort(dim=1).argsort(dim=1).float()
+    rank_second = second.argsort(dim=1).argsort(dim=1).float()
+    centered_first = rank_first - rank_first.mean(dim=1, keepdim=True)
+    centered_second = rank_second - rank_second.mean(dim=1, keepdim=True)
+    numerator = (centered_first * centered_second).sum(dim=1)
+    denominator = (
+        centered_first.pow(2).sum(dim=1).sqrt()
+        * centered_second.pow(2).sum(dim=1).sqrt()
+    ).clamp_min(EPS)
+    return numerator / denominator
+
+
 def _fault_candidate_rank(
     residuals: torch.Tensor,
     y_loc: torch.Tensor,
@@ -196,8 +215,13 @@ def evaluate_z_predictions(
     threshold: float = 0.0,
     top_k: int = 3,
     channel_weight: Optional[torch.Tensor] = None,
+    n_permutations: int = 0,
 ) -> dict:
-    """计算 S/Z 双空间定位、排序、ρ、方差和能量指标。"""
+    """计算 S/Z 双空间定位、排序、ρ、方差和能量指标。
+
+    `n_permutations>0` 时额外执行候选预测置换控制，用于判断 `rho` 改善是否
+    依赖正确的逐候选预测对齐，而不是随机扰动或全局重参数化。
+    """
     if predictions.shape != signature_bank.shape or predictions.ndim != 5:
         raise ValueError("predictions 和 signature_bank 必须为相同的 [B,C,N,T,F]")
     device = predictions.device
@@ -250,6 +274,44 @@ def evaluate_z_predictions(
         )
         true_rank_s = _rank_of_true_candidate(residual_s, true_idx)
         true_rank_z = _rank_of_true_candidate(residual_z, true_idx)
+        oracle_residual_s = masked_pairwise_distance(
+            signature_bank, observations.unsqueeze(1), mask, channel_weight
+        )
+        oracle_residual_z = masked_pairwise_distance(
+            encoded_bank, encoded_observation.unsqueeze(1), mask, channel_weight
+        )
+        oracle_spearman = _spearman_across_candidates(
+            oracle_residual_s, oracle_residual_z
+        )
+        log_error_change = torch.log(prediction_error_z + EPS) - torch.log(
+            prediction_error_s + EPS
+        )
+        log_delta_change = torch.log(delta_z_true + EPS) - torch.log(
+            delta_s_true + EPS
+        )
+    null_rate = None
+    null_rate_p95 = None
+    if n_permutations > 0:
+        generator = torch.Generator(device=device)
+        generator.manual_seed(42)
+        effective_masks = expand_observation_mask(mask, observations)
+        null_rates = []
+        for _ in range(int(n_permutations)):
+            null_errors = torch.empty_like(rho_s)
+            for batch in range(predictions.shape[0]):
+                permutation = torch.randperm(
+                    predictions.shape[1], generator=generator, device=device
+                )
+                candidate = int(permutation[int(true_idx[batch])].item())
+                difference = encoded_predictions[batch, candidate] - z_true[batch]
+                effective = effective_masks[batch]
+                null_errors[batch] = (difference.pow(2) * effective).sum() / (
+                    effective.sum().clamp_min(EPS)
+                )
+            null_rho = null_errors / (delta_z_true + EPS)
+            null_rates.append(float((null_rho <= rho_s).float().mean().item()))
+        null_rate = float(np.mean(null_rates))
+        null_rate_p95 = float(np.percentile(null_rates, 95))
     summary_s = _ranking_summary(
         residual_s, candidate_batch, y_loc, y_detect, no_fault_idx, threshold, top_k
     )
@@ -268,6 +330,15 @@ def evaluate_z_predictions(
         "rho_improved_rate": float((rho_z <= rho_s).float().mean().item()),
         "rho_median_improvement": float((rho_s.median() - rho_z.median()).item()),
         "rho_ratio_median": float((rho_z / (rho_s + EPS)).median().item()),
+        "paired_log_error_change": _distribution_summary(log_error_change),
+        "paired_log_delta_change": _distribution_summary(log_delta_change),
+        "oracle_rank_spearman": _distribution_summary(oracle_spearman),
+        "oracle_rank_spearman_negative_rate": float(
+            (oracle_spearman < 0).float().mean().item()
+        ),
+        "null_rho_improved_rate_mean": null_rate,
+        "null_rho_improved_rate_p95": null_rate_p95,
+        "null_permutations": int(n_permutations),
         "delta_s": _distribution_summary(delta_s_true),
         "delta_z": _distribution_summary(delta_z_true),
         "prediction_error_s": _distribution_summary(prediction_error_s),

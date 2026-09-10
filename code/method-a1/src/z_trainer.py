@@ -62,6 +62,10 @@ class ZRoute1Trainer:
         patience_b: int = 3,
         patience_c: int = 3,
         early_stop_min_delta: float = 0.0,
+        margin_scale: float = 1.0,
+        stage_c_selection_metric: str = "z_top1",
+        permutation_count: int = 0,
+        label_shuffle: bool = False,
         tie_tolerance: float = 1e-6,
         s_top1_tolerance: float = 0.05,
         threshold: float = 0.0,
@@ -98,6 +102,12 @@ class ZRoute1Trainer:
         self.patience_b = int(patience_b)
         self.patience_c = int(patience_c)
         self.early_stop_min_delta = float(early_stop_min_delta)
+        self.margin_scale = float(margin_scale)
+        self.stage_c_selection_metric = str(stage_c_selection_metric)
+        if self.stage_c_selection_metric not in {"z_top1", "rho_ratio"}:
+            raise ValueError("stage_c_selection_metric 只能是 z_top1 或 rho_ratio")
+        self.permutation_count = int(permutation_count)
+        self.label_shuffle = bool(label_shuffle)
         self.tie_tolerance = float(tie_tolerance)
         self.s_top1_tolerance = float(s_top1_tolerance)
         self.threshold = float(threshold)
@@ -159,12 +169,15 @@ class ZRoute1Trainer:
         )
 
     def _true_idx(self, y_detect: torch.Tensor, y_loc: torch.Tensor) -> torch.Tensor:
-        """返回批量真实候选索引。"""
-        return true_candidate_index(
+        """返回批量真实候选索引；标签置换对照时打乱批内标签。"""
+        result = true_candidate_index(
             torch.as_tensor(y_detect, dtype=torch.float32, device=self.device),
             torch.as_tensor(y_loc, dtype=torch.long, device=self.device),
             self.no_fault_idx,
         )
+        if self.label_shuffle and result.numel() > 1:
+            result = result[torch.randperm(result.numel(), device=result.device)]
+        return result
 
     def _predict(self, x_obs: torch.Tensor, edge_mask: torch.Tensor) -> torch.Tensor:
         """全候选前向。"""
@@ -226,6 +239,7 @@ class ZRoute1Trainer:
             self.no_fault_idx,
             threshold=self.threshold,
             top_k=self.top_k,
+            n_permutations=self.permutation_count,
         )
         return {"oracle": oracle, "metrics": metrics}
 
@@ -290,7 +304,12 @@ class ZRoute1Trainer:
                 )
                 hard_idx, _ = physical_gap_from_residuals(physical_residual, true_idx)
                 rank_result = oracle_rank_loss(
-                    self.encoder, bank, observations, mask, true_idx
+                    self.encoder,
+                    bank,
+                    observations,
+                    mask,
+                    true_idx,
+                    margin_scale=self.margin_scale,
                 )
                 identity = identity_anchor_loss(self.encoder, bank, mask)
                 encoded_bank = encode_candidate_signatures(self.encoder, bank, mask)
@@ -363,6 +382,7 @@ class ZRoute1Trainer:
                     mask,
                     true_idx,
                     margin,
+                    margin_scale=self.margin_scale,
                 )
                 identity = identity_anchor_loss(self.encoder, bank, mask)
                 encoded_bank = encode_candidate_signatures(self.encoder, bank, mask)
@@ -578,12 +598,26 @@ class ZRoute1Trainer:
             improved = False
             if gates["passed"]:
                 history["legal_epochs"].append(int(epoch))
-                if best_metric is None:
-                    improved = True
-                elif metric > best_metric + self.tie_tolerance:
-                    improved = True
-                elif abs(metric - best_metric) <= self.tie_tolerance and ratio < best_ratio - self.tie_tolerance:
-                    improved = True
+                if self.stage_c_selection_metric == "z_top1":
+                    if best_metric is None:
+                        improved = True
+                    elif metric > best_metric + self.tie_tolerance:
+                        improved = True
+                    elif (
+                        abs(metric - best_metric) <= self.tie_tolerance
+                        and ratio < best_ratio - self.tie_tolerance
+                    ):
+                        improved = True
+                else:
+                    if best_metric is None:
+                        improved = True
+                    elif ratio < best_ratio - self.tie_tolerance:
+                        improved = True
+                    elif (
+                        abs(ratio - best_ratio) <= self.tie_tolerance
+                        and metric > best_metric + self.tie_tolerance
+                    ):
+                        improved = True
                 if improved:
                     best_metric = metric
                     best_ratio = ratio
@@ -668,6 +702,9 @@ class ZRoute1Trainer:
                 "stage_b_lr": self.stage_b_lr,
                 "stage_c_lr": self.stage_c_lr,
                 "stage_c_predictor_lr": self.stage_c_predictor_lr,
+                "margin_scale": self.margin_scale,
+                "stage_c_selection_metric": self.stage_c_selection_metric,
+                "label_shuffle": self.label_shuffle,
                 "seed": self.seed,
             },
             "meta": dict(meta or {}),

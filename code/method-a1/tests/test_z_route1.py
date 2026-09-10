@@ -10,7 +10,7 @@ from src.model.signature_predictor import A1SignaturePredictor
 from src.model.z_encoder import ZSpaceEncoder, encode_candidate_signatures
 from src.trainer import A1ArrayDataset
 from src.z_eval import evaluate_oracle_z, evaluate_z_predictions
-from src.z_losses import log_space_energy_penalty, physical_hardest_negative
+from src.z_losses import log_space_energy_penalty, oracle_rank_loss, physical_hardest_negative
 from src.z_route1 import run_z_experiment
 from src.z_trainer import ZRoute1Trainer
 
@@ -224,3 +224,80 @@ def test_run_z_experiment_writes_reports(tmp_path):
     assert (output / "stage_b_history.json").exists()
     assert (output / "stage_c_history.json").exists()
     assert report["encoder_contract"]["passed"] is True
+
+
+def test_margin_scale_increases_oracle_rank_loss():
+    """放大 margin 应提高 identity 映射下的 Oracle 排序损失。"""
+    bank = torch.randn(2, 4, 3, 4, 6)
+    observed = bank[:, 0].clone()
+    mask = torch.ones(2, 3)
+    encoder = ZSpaceEncoder(time_steps=4, feature_dim=6, hidden_dim=8)
+    small = oracle_rank_loss(
+        encoder, bank, observed, mask, torch.tensor([0, 1]), margin_scale=1.0
+    )["loss"]
+    large = oracle_rank_loss(
+        encoder, bank, observed, mask, torch.tensor([0, 1]), margin_scale=10.0
+    )["loss"]
+    assert large.item() > small.item()
+
+
+def test_permutation_null_metrics_are_reported():
+    """候选置换对照应返回可解释的 null 改善比例。"""
+    bank = torch.randn(2, 4, 3, 4, 6)
+    predictions = torch.randn(2, 4, 3, 4, 6)
+    observed = bank[:, 0].clone()
+    mask = torch.ones(2, 3)
+    encoder = ZSpaceEncoder(time_steps=4, feature_dim=6, hidden_dim=8)
+    result = evaluate_z_predictions(
+        encoder,
+        predictions,
+        bank,
+        observed,
+        mask,
+        torch.tensor([0, 1]),
+        torch.tensor([1, 1]),
+        3,
+        n_permutations=5,
+    )
+    summary = result["summary"]
+    assert 0.0 <= summary["null_rho_improved_rate_mean"] <= 1.0
+    assert 0.0 <= summary["null_rho_improved_rate_p95"] <= 1.0
+    assert summary["null_permutations"] == 5
+    assert "paired_log_error_change" in summary
+
+
+def test_identity_control_has_full_rho_improvement_rate(tmp_path):
+    """identity 对照应满足 rho_Z=rho_S，改善比例等于 1。"""
+    shape = _tiny_data(tmp_path / "data")
+    predictor = _build_stage_a_predictor(shape)
+    checkpoint = tmp_path / "stage_a.pt"
+    torch.save(
+        {
+            "state_dict": predictor.state_dict(),
+            "meta": {
+                "n_nodes": shape["n_nodes"],
+                "window_len": shape["window_len"],
+                "feature_dim": shape["feature_dim"],
+            },
+        },
+        checkpoint,
+    )
+    report = run_z_experiment(
+        data_dir=tmp_path / "data",
+        output_dir=tmp_path / "output",
+        checkpoint_dir=tmp_path / "checkpoints",
+        stage_a_checkpoint=checkpoint,
+        stage_a_report=tmp_path / "missing_report.json",
+        device="cpu",
+        batch_size=2,
+        stage_b_epochs=0,
+        stage_c_epochs=0,
+        patience_b=0,
+        patience_c=0,
+        top_k=2,
+        encoder_control="identity",
+        permutation_count=5,
+    )
+    assert report["test_metrics"]["rho_improved_rate"] == 1.0
+    assert report["test_oracle"]["oracle_fidelity"] is True
+    assert report["encoder_control"] == "identity"

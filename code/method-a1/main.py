@@ -344,6 +344,37 @@ def parse_args():
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--top-k", type=int, default=3)
     parser.add_argument("--threshold", type=float, default=0.0)
+    parser.add_argument("--stage-b-lr", type=float, default=1e-3)
+    parser.add_argument("--stage-c-lr", type=float, default=1e-4)
+    parser.add_argument("--stage-c-predictor-lr", type=float, default=1e-4)
+    parser.add_argument("--patience-b", type=int, default=3)
+    parser.add_argument("--patience-c", type=int, default=3)
+    parser.add_argument("--early-stop-min-delta", type=float, default=0.0)
+    parser.add_argument("--encoder-hidden", type=int, default=32)
+    parser.add_argument("--residual-scale", type=float, default=0.1)
+    parser.add_argument(
+        "--encoder-control", choices=("none", "identity", "random"), default="none"
+    )
+    parser.add_argument("--margin-scale", type=float, default=1.0)
+    parser.add_argument(
+        "--stage-c-selection",
+        choices=("z_top1", "rho_ratio"),
+        default="z_top1",
+    )
+    parser.add_argument("--beta-rank", type=float, default=1.0)
+    parser.add_argument("--beta-id", type=float, default=1.0)
+    parser.add_argument("--gamma-id", type=float, default=0.1)
+    parser.add_argument("--alpha-z", type=float, default=1.0)
+    parser.add_argument("--beta-rank-z", type=float, default=1.0)
+    parser.add_argument("--lambda-j", type=float, default=1e-4)
+    parser.add_argument("--lambda-q", type=float, default=1e-3)
+    parser.add_argument("--lambda-l", type=float, default=1e-3)
+    parser.add_argument("--q-min", type=float, default=0.5)
+    parser.add_argument("--q-max", type=float, default=2.0)
+    parser.add_argument("--l-max", type=float, default=1.0)
+    parser.add_argument("--jacobian-probes", type=int, default=1)
+    parser.add_argument("--jacobian-max-signatures", type=int, default=8)
+    parser.add_argument("--permutation-count", type=int, default=0)
     return parser.parse_args()
 
 
@@ -371,9 +402,34 @@ def main():
             batch_size=args.batch_size,
             stage_b_epochs=args.stage_b_epochs,
             stage_c_epochs=args.stage_c_epochs,
+            stage_b_lr=args.stage_b_lr,
+            stage_c_lr=args.stage_c_lr,
+            stage_c_predictor_lr=args.stage_c_predictor_lr,
+            patience_b=args.patience_b,
+            patience_c=args.patience_c,
+            early_stop_min_delta=args.early_stop_min_delta,
             top_k=args.top_k,
             threshold=args.threshold,
             resume=args.resume,
+            encoder_hidden=args.encoder_hidden,
+            residual_scale=args.residual_scale,
+            encoder_control=args.encoder_control,
+            margin_scale=args.margin_scale,
+            stage_c_selection_metric=args.stage_c_selection,
+            beta_rank=args.beta_rank,
+            beta_id=args.beta_id,
+            gamma_id=args.gamma_id,
+            alpha_z=args.alpha_z,
+            beta_rank_z=args.beta_rank_z,
+            lambda_j=args.lambda_j,
+            lambda_q=args.lambda_q,
+            lambda_l=args.lambda_l,
+            q_min=args.q_min,
+            q_max=args.q_max,
+            l_max=args.l_max,
+            jacobian_probes=args.jacobian_probes,
+            jacobian_max_signatures=args.jacobian_max_signatures,
+            permutation_count=args.permutation_count,
         )
         print(
             json.dumps(

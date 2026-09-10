@@ -89,9 +89,30 @@ def run_z_experiment(
     stage_c_predictor_lr: float = 1e-4,
     patience_b: int = 3,
     patience_c: int = 3,
+    early_stop_min_delta: float = 0.0,
     top_k: int = 3,
     threshold: float = 0.0,
     resume: bool = False,
+    encoder_hidden: int = 32,
+    residual_scale: float = 0.1,
+    encoder_control: str = "none",
+    margin_scale: float = 1.0,
+    stage_c_selection_metric: str = "z_top1",
+    beta_rank: float = 1.0,
+    beta_id: float = 1.0,
+    gamma_id: float = 0.1,
+    alpha_z: float = 1.0,
+    beta_rank_z: float = 1.0,
+    lambda_j: float = 1e-4,
+    lambda_q: float = 1e-3,
+    lambda_l: float = 1e-3,
+    q_min: float = 0.5,
+    q_max: float = 2.0,
+    l_max: float = 1.0,
+    jacobian_probes: int = 1,
+    jacobian_max_signatures: int = 8,
+    permutation_count: int = 0,
+    label_shuffle: bool = False,
 ) -> dict:
     """运行 Z 路线一 S0 全闭环并写出报告。"""
     data_dir = Path(data_dir)
@@ -111,12 +132,19 @@ def run_z_experiment(
 
     time_steps = int(data["X_obs"].shape[2])
     feature_dim = int(data["X_obs"].shape[3])
+    if encoder_control not in {"none", "identity", "random"}:
+        raise ValueError("encoder_control 只能是 none、identity 或 random")
+    if encoder_control != "none":
+        stage_b_epochs = 0
+        stage_c_epochs = 0
     encoder = ZSpaceEncoder(
         time_steps=time_steps,
         feature_dim=feature_dim,
-        hidden_dim=32,
-        residual_scale=0.1,
+        hidden_dim=encoder_hidden,
+        residual_scale=residual_scale,
     )
+    if encoder_control == "random":
+        encoder.randomize_residual(std=0.01, seed=seed)
     trainer = ZRoute1Trainer(
         predictor=predictor,
         encoder=encoder,
@@ -134,6 +162,23 @@ def run_z_experiment(
         stage_c_predictor_lr=stage_c_predictor_lr,
         patience_b=patience_b,
         patience_c=patience_c,
+        early_stop_min_delta=early_stop_min_delta,
+        margin_scale=margin_scale,
+        stage_c_selection_metric=stage_c_selection_metric,
+        beta_rank=beta_rank,
+        beta_id=beta_id,
+        gamma_id=gamma_id,
+        alpha_z=alpha_z,
+        beta_rank_z=beta_rank_z,
+        lambda_j=lambda_j,
+        lambda_q=lambda_q,
+        lambda_l=lambda_l,
+        q_min=q_min,
+        q_max=q_max,
+        l_max=l_max,
+        jacobian_probes=jacobian_probes,
+        jacobian_max_signatures=jacobian_max_signatures,
+        label_shuffle=label_shuffle,
         top_k=top_k,
         threshold=threshold,
         seed=seed,
@@ -169,6 +214,7 @@ def run_z_experiment(
         trainer.no_fault_idx,
         threshold=threshold,
         top_k=top_k,
+        n_permutations=permutation_count,
     )
     oracle = evaluate_oracle_z(
         trainer.encoder,
@@ -219,9 +265,30 @@ def run_z_experiment(
         "stage_c_predictor_lr": float(stage_c_predictor_lr),
         "patience_b": int(patience_b),
         "patience_c": int(patience_c),
+        "early_stop_min_delta": float(early_stop_min_delta),
         "threshold": float(threshold),
         "top_k": int(top_k),
         "resume": bool(resume),
+        "encoder_hidden": int(encoder_hidden),
+        "residual_scale": float(residual_scale),
+        "encoder_control": str(encoder_control),
+        "margin_scale": float(margin_scale),
+        "stage_c_selection_metric": str(stage_c_selection_metric),
+        "beta_rank": float(beta_rank),
+        "beta_id": float(beta_id),
+        "gamma_id": float(gamma_id),
+        "alpha_z": float(alpha_z),
+        "beta_rank_z": float(beta_rank_z),
+        "lambda_j": float(lambda_j),
+        "lambda_q": float(lambda_q),
+        "lambda_l": float(lambda_l),
+        "q_min": float(q_min),
+        "q_max": float(q_max),
+        "l_max": float(l_max),
+        "jacobian_probes": int(jacobian_probes),
+        "jacobian_max_signatures": int(jacobian_max_signatures),
+        "permutation_count": int(permutation_count),
+        "label_shuffle": bool(label_shuffle),
         "stage_a": stage_a_info,
         "encoder_contract": trainer.encoder_contract(),
         "stage_b_gate_failed": bool(fit_result["stage_b_gate_failed"]),

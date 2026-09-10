@@ -123,6 +123,7 @@ def oracle_rank_loss(
     observations: torch.Tensor,
     mask: torch.Tensor,
     true_idx: torch.Tensor,
+    margin_scale: float = 1.0,
     channel_weight: Optional[torch.Tensor] = None,
 ) -> dict:
     """阶段 B 的 Oracle 排序损失，margin 使用逐样本 physical gap。"""
@@ -133,6 +134,7 @@ def oracle_rank_loss(
         signature_bank, observations.unsqueeze(1), mask
     )
     hard_idx, margin = physical_gap_from_residuals(residuals, true_idx)
+    margin = margin * float(margin_scale)
     z_all = encode_candidate_signatures(encoder, signature_bank, mask)
     z_observation = encoder(observations, mask)
     positive = masked_weighted_mse(
@@ -195,6 +197,7 @@ def z_ranking_loss(
     mask: torch.Tensor,
     true_idx: torch.Tensor,
     margin: torch.Tensor,
+    margin_scale: float = 1.0,
     channel_weight: Optional[torch.Tensor] = None,
 ) -> dict:
     """阶段 C 的 Z 空间候选排序损失。"""
@@ -210,7 +213,8 @@ def z_ranking_loss(
     batch_index = torch.arange(predictions.shape[0], device=predictions.device)
     positive = residual_z[batch_index, true_idx]
     negative = residual_z[batch_index, hard_idx]
-    loss = F.softplus(positive - negative + margin.detach()).mean()
+    selected_margin = margin * float(margin_scale)
+    loss = F.softplus(positive - negative + selected_margin.detach()).mean()
     return {
         "loss": loss,
         "hard_negative_idx": hard_idx.detach(),

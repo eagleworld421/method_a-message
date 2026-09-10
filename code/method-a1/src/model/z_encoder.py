@@ -96,6 +96,17 @@ class ZSpaceEncoder(nn.Module):
         )
         self.register_buffer("residual_scale", torch.tensor(float(residual_scale)))
 
+    def randomize_residual(self, std: float = 0.01, seed: int | None = None) -> None:
+        """用小型随机权重替换残差分支，用于随机映射对照实验。"""
+        generator = None
+        if seed is not None:
+            generator = torch.Generator().manual_seed(int(seed))
+        for module in self.residual.modules():
+            if not isinstance(module, nn.Linear):
+                continue
+            nn.init.normal_(module.weight, mean=0.0, std=float(std), generator=generator)
+            nn.init.zeros_(module.bias)
+
     def forward(
         self,
         signatures: torch.Tensor,
