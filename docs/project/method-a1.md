@@ -166,6 +166,21 @@ P(k\mid X_O,G_{obs})\propto P_{direct}(k\mid X_O,G_{obs})
 - 约 40% 拓扑或电气距离近邻，覆盖最难区分的位置；
 - 约 30% 当前模型 Top-K 中的非真实候选，作为动态困难样本。
 
+这里的困难候选不是按候选编号或单纯拓扑距离定义。对真实候选 `k_true`，物理 hardest negative 定义为完整候选集合中 Oracle residual 最小的错误候选：
+
+```math
+j^*_{phys}=\arg\min_{j\ne k_{true}}
+\left\|\Pi_O S_j-X_O\right\|^2.
+```
+
+它用于标定 physical gap、设置 ranking margin 和评估 Oracle 排序。模型 hardest negative 则使用当前 checkpoint 的预测 residual：
+
+```math
+j^*_{model}=\arg\min_{j\ne k_{true}}r(j).
+```
+
+该 `argmin` 只用于选择训练样本，不参与反向传播，并按 epoch 或固定 step 周期性刷新。S0 和路线一最小闭环始终直接使用单个 hardest negative，不使用 top-H 或 log-sum-exp 聚合。S0 不进行候选采样，直接对全部母线候选和 `NO_FAULT` 全枚举；候选采样只用于候选规模扩大后的计算预算控制。
+
 课程式预算可从 Warm-up 阶段的 8–16 个候选，逐步增加到 Main 阶段的 24–32 个和 Hard 阶段的 32–48 个。随机候选与物理近邻可以完全离线预计算；模型混淆候选按 epoch 或固定步数周期性刷新，避免每步额外前向。
 
 ### 5.2 无故障候选
