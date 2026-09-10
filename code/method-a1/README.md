@@ -1,8 +1,8 @@
-<!-- 摘要：Method-A1 IEEE13 S0 训练、验证集早停、分项损失曲线、checkpoint 续训、运行时统计和评估报告的运行说明。 -->
+<!-- 摘要：Method-A1 IEEE13 S0 训练、理想 Oracle S1–S4 场景、签名库校验、物理邻近性分析和评估报告的运行说明。 -->
 
 # Method-A1：OpenDSS 反事实稠密监督
 
-本方法首轮实现仅验证 IEEE13 馈线的 S0 场景：正确拓扑、全节点观测和母线级候选。模型复用 TCN 时序编码和普通拓扑消息传递 GNN，候选签名解码、损失、训练器、残差定位和检测逻辑独立实现。
+本方法包含两条互不混淆的验证路径：S0 的 TCN/GNN 模型训练，以及使用真实 signature bank、完全不读取模型预测的 S1–S4 理想 Oracle 验证。Oracle 路径复用基础物理数据，只派生拓扑掩码、观测掩码、拓扑分组和阻抗档位；不会重新使用错误拓扑生成监督 signature。
 
 当前六维输入统一为标准化的 `[Re_A, Im_A, Re_B, Im_B, Re_C, Im_C]`，由 OpenDSS 幅值/角度相量转换得到；标准化参数保存在数据目录的 `feature_scaler.npz`。
 
@@ -146,4 +146,28 @@ checkpoint 包含 `state_dict`、`optimizer_state_dict`、`epoch`、完整 `hist
 
 `edge_index.npy` 使用双向消息边，`edge_attr.npy` 与 `edge_mask.npy` 的第一维/边维度与其一致。
 
-S1 拓扑错误和 S2 部分观测不属于当前首轮实现，后续实验单独加入。
+S1 拓扑错误和 S2 部分观测不属于当前首轮模型训练路径；理想 Oracle 验证通过下述独立脚本运行。
+
+## S1–S4 理想 Oracle 验证
+
+先用已有 S0 数据建立一次完整、可校验的签名库，再运行小规模 smoke：
+
+```text
+python scripts/run_oracle_suite.py \
+  --source-data-dir data/s0 \
+  --output-root output \
+  --library-id a1-signed-library-seed42 \
+  --run-id smoke-20260910 \
+  --seed 42 \
+  --smoke
+```
+
+完整参数矩阵去掉 `--smoke` 即可运行。该流程不调用 TCN、GNN 或模型 checkpoint，Oracle residual 固定为真实 `signature_bank` 与 `x_full` 在观测掩码上的 masked MSE；并列时按候选索引升序稳定排序。S1 的 `G*` 与 `G_obs` 通过真实边掩码区分，S2 缺失仅由观测掩码表示，S3 按 `topology_id` 或 `topology_family` 划分，S4 使用低/中/高阻抗档位嵌入 S0–S3。
+
+输出目录包括：
+
+- `output/signed-library/<library-id>/`：完整数组、标准化统计量、`meta.json` 和 `checksums.json`；加载时任何校验失败都会阻止实验继续。
+- `output/s0-oracle/<run-id>/` 至 `output/s4-oracle/<run-id>/`：`report.json`、`summary.json`、三个 JSONL 明细文件、配置、库清单和图形。
+- `output/proximity/<run-id>/`：拓扑跳数、电气距离、结构距离、完整/观测 signature 距离、Spearman、Kendall、Mantel、距离分箱、最近邻和随机基线。
+
+当前 `data/s0` 只有一个拓扑实例，因此 S3 smoke 会保留结果但在 `report.json` 标记无法形成互斥拓扑训练/测试划分；这不是跨拓扑泛化结论。Oracle 中 `prediction_error=0`、`rho_s=0` 仅表示理想上界，不代表后续模型已经达到该误差水平。
