@@ -6,7 +6,15 @@ def test_a1_packages_import_without_open_dss():
     import src
     import src.data_generation
     import src.model
+    import src.model.z_encoder
+    import src.z_eval
+    import src.z_losses
+    import src.z_masking
+    import src.z_route1
+    import src.z_trainer
 
     assert src is not None
     assert src.data_generation is not None
     assert src.model is not None
+    assert src.model.z_encoder is not None
+    assert src.z_route1 is not None
