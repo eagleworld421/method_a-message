@@ -16,12 +16,12 @@
 - 已实现：可复用 signature library 的数组契约、标准化统计量、真实/观测拓扑语义、校验清单和严格加载；S1–S4 Oracle residual、Top-K、排名、检测、gap、并列、分层 JSONL 结果；拓扑跳数、电气距离、结构距离、Spearman、Kendall、Mantel 和最近邻分析；场景图形输出。
 - 报告格式：S0 标量汇总写入 `report.json`，逐样本残差和预测字段写入 `metrics_detail.json`；Z 路线一使用独立的 `z_report.json`、`z_metrics_detail.json`、`oracle_z_report.json`、`stage_b_history.json` 和 `stage_c_history.json`，不修改原 S0 产物。
 - 最近一次纯单元测试验证：2026-09-10，在 `code/method-a1/` 执行 `python -m pytest tests -q`，结果为 65 passed。
-- 真实环境：2026-09-10 使用 `data/s0-spb50` 和 `checkpoint/s0-spb50-rk/model.pt` 执行了 seed 42 的 Z 路线一 10 epoch 阶段 B + 10 epoch 阶段 C Experiment Gate，流程完成且全部硬门通过；本次未重新调用 OpenDSS。
+- 真实环境：2026-09-10 使用 `data/s0-spb50` 和 `checkpoint/s0-spb50-rk/model.pt` 执行了 seed 42、43、44 的 Z 路线一运行；阶段 B/C 上限 100 epoch、patience 3、按验证集总损失早停，实际阶段 B 轮数为 10、14、17，阶段 C 轮数为 15、6、6；三个 seed 流程完成且全部硬门通过；本次未重新调用 OpenDSS。
 
 ## 3. Current Baseline
 
 - 当前模型最新可见输出：`code/method-a1/output/s0-spb50-rk/`；Oracle smoke 输出位于 `code/method-a1/output/s0-oracle/` 至 `code/method-a1/output/s4-oracle/` 和 `code/method-a1/output/proximity/`。
-- Z 路线一 seed 42 Experiment Gate 输出位于 `code/method-a1/output/z-route1/`，seed 43 和 seed 44 输出位于对应 `output/z-route1-seed43/` 和 `output/z-route1-seed44/`。三个 seed 的测试集 Oracle S/Z Top-1 均为 1.0，端到端硬门全部通过；`rho_Z<=rho_S` 样本比例分别为 0.091、0.128 和 0.094，`rho_Z` 中位数分别为 3.170、2.080 和 2.888，均略高于对应 `rho_S` 中位数 3.144、2.076 和 2.864。该结果表明代码闭环可运行，但路线一尚未显示相对 S 基线的诊断收益。
+- Z 路线一 seed 42 输出位于 `code/method-a1/output/z-route1/`，seed 43 和 seed 44 输出位于对应 `output/z-route1-seed43/` 和 `output/z-route1-seed44/`。三个 seed 的测试集 Oracle S/Z Top-1 均为 1.0，端到端硬门全部通过；Z Top-1 分别约为 0.320、0.333 和 0.353，略高于对应 S Top-1 的 0.314、0.327 和 0.346；但 `rho_Z<=rho_S` 样本比例分别约为 0.084、0.141 和 0.094，`rho_Z` 中位数 2.971、2.433 和 2.832 均略高于对应 `rho_S` 中位数 2.943、2.425 和 2.816。该结果表明代码闭环可运行且预测 Top-1 略有改善，但路线一尚未通过文档规定的 `rho` 改善门。
 - 数据规模：IEEE13、16 个节点、17 个候选、1600 个样本、1280 train、320 test。
 - 训练配置：启用 ranking loss，使用验证集总损失早停；最佳 epoch 为 40，实际运行 51 个 epoch。
 - 测试指标：Top-1 约 0.333，Top-K 约 0.490，检测准确率约 0.887，故障召回率约 0.843，F1 约 0.878。
@@ -39,10 +39,10 @@
 
 - 当前 Oracle smoke 使用已有 IEEE13 S0 库；尚未用多个真实拓扑实例形成有效 S3 跨拓扑统计结论。
 - 当前候选使用全量枚举，尚未实现分层采样、困难负样本缓存或大规模签名库内存映射。
-- Z 路线一已实现代码闭环，但 seed 42、43、44 的完整 10+10 epoch 运行中 `rho_Z` 中位数均略高于 `rho_S`，`rho_Z<=rho_S` 样本比例均低于 0.13；因此当前不能宣称路线一有效，需要继续分析 margin、正则权重和阶段 C 选择规则。
+- Z 路线一已实现代码闭环，但 seed 42、43、44 的 100 epoch 上限、patience 3 早停运行中 `rho_Z` 中位数均略高于 `rho_S`，`rho_Z<=rho_S` 样本比例均低于 0.15；因此当前不能宣称路线一有效，需要继续分析 margin、正则权重、阶段 C 选择规则和早停配置。
 - 检测阈值仍为零阈值，尚未通过验证集完成标定或不确定区间设计；Z 空间检测复用零阈值。
 - 尚未开展多随机种子、多运行工况、IEEE37/123、真实跨拓扑和真实数据验证；Oracle 结果不能替代模型结果。
-- Z 路线一已完成 seed 42、43、44 的 10+10 epoch 运行验证；三个 seed 均未通过 `rho` 改善门，因此阶段 B/C 的调参、margin 或正则权重消融仍待后续任务。
+- Z 路线一已完成 seed 42、43、44 的 100 epoch 上限、patience 3 早停运行验证；三个 seed 均未通过 `rho` 改善门，因此阶段 B/C 的调参、margin、正则权重和早停配置消融仍待后续任务。
 - 真实 OpenDSS smoke 依赖本机 COM 组件和测试馈线安装；纯单元测试不应依赖该环境。
 
 ## 6. Decisions Needed
