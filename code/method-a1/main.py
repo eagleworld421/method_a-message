@@ -13,6 +13,7 @@ from src.eval import evaluate_predictions
 from src.model.signature_predictor import A1SignaturePredictor
 from src.plotting import plot_loss_curves
 from src.trainer import A1ArrayDataset, A1Trainer
+from src.z_route1 import run_z_experiment
 
 
 _DETAIL_METRIC_FIELDS = ("residuals", "pred_loc", "pred_detect", "d")
@@ -310,7 +311,9 @@ def evaluate_checkpoint(
 def parse_args():
     """解析命令行参数。"""
     parser = argparse.ArgumentParser(description="Method-A1 OpenDSS S0 实验")
-    parser.add_argument("--mode", choices=("smoke", "benchmark", "evaluate"), default="smoke")
+    parser.add_argument(
+        "--mode", choices=("smoke", "benchmark", "evaluate", "z"), default="smoke"
+    )
     parser.add_argument("--case", default="ieee13")
     parser.add_argument("--data-dir", type=Path, default=Path("data/s0"))
     parser.add_argument("--output-dir", type=Path, default=Path("output/s0"))
@@ -326,12 +329,65 @@ def parse_args():
     parser.add_argument("--rank-margin", type=float, default=0.1)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--s0-only", action="store_true", default=True)
+    parser.add_argument(
+        "--stage-a-checkpoint",
+        type=Path,
+        default=Path("checkpoint/s0-spb50-rk/model.pt"),
+    )
+    parser.add_argument(
+        "--stage-a-report",
+        type=Path,
+        default=Path("output/s0-spb50-rk/report.json"),
+    )
+    parser.add_argument("--stage-b-epochs", type=int, default=10)
+    parser.add_argument("--stage-c-epochs", type=int, default=10)
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--top-k", type=int, default=3)
+    parser.add_argument("--threshold", type=float, default=0.0)
     return parser.parse_args()
 
 
 def main():
     """执行命令行实验。"""
     args = parse_args()
+    if args.mode == "z":
+        data_dir = args.data_dir
+        output_dir = args.output_dir
+        checkpoint_dir = args.checkpoint_dir
+        if data_dir == Path("data/s0"):
+            data_dir = Path("data/s0-spb50")
+        if output_dir == Path("output/s0"):
+            output_dir = Path("output/z-route1")
+        if checkpoint_dir == Path("checkpoint/s0"):
+            checkpoint_dir = Path("checkpoint/z-route1")
+        report = run_z_experiment(
+            data_dir=data_dir,
+            output_dir=output_dir,
+            checkpoint_dir=checkpoint_dir,
+            stage_a_checkpoint=args.stage_a_checkpoint,
+            stage_a_report=args.stage_a_report,
+            seed=args.seed,
+            device=args.device,
+            batch_size=args.batch_size,
+            stage_b_epochs=args.stage_b_epochs,
+            stage_c_epochs=args.stage_c_epochs,
+            top_k=args.top_k,
+            threshold=args.threshold,
+            resume=args.resume,
+        )
+        print(
+            json.dumps(
+                {
+                    "scenario": report["scenario"],
+                    "stage_b_gate_failed": report["stage_b_gate_failed"],
+                    "stage_c_gate_failed": report["stage_c_gate_failed"],
+                    "test_metrics": report["test_metrics"],
+                    "test_oracle": report["test_oracle"],
+                },
+                ensure_ascii=False,
+            )
+        )
+        return
     if args.mode == "evaluate":
         report = evaluate_checkpoint(
             data_dir=args.data_dir, checkpoint_path=args.checkpoint_dir / "model.pt",
