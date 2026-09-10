@@ -1,4 +1,4 @@
-<!-- 摘要：Method-A1 IEEE13 S0 训练、理想 Oracle S1–S4 场景、签名库校验、物理邻近性分析和评估报告的运行说明。 -->
+<!-- 摘要：Method-A1 IEEE13 S0 训练、Z 路线一 S0 全闭环、理想 Oracle S1–S4 场景、签名库校验、物理邻近性分析和评估报告的运行说明。 -->
 
 # Method-A1：OpenDSS 反事实稠密监督
 
@@ -147,6 +147,50 @@ checkpoint 包含 `state_dict`、`optimizer_state_dict`、`epoch`、完整 `hist
 `edge_index.npy` 使用双向消息边，`edge_attr.npy` 与 `edge_mask.npy` 的第一维/边维度与其一致。
 
 S1 拓扑错误和 S2 部分观测不属于当前首轮模型训练路径；理想 Oracle 验证通过下述独立脚本运行。
+
+## Z 路线一 S0 全闭环
+
+Z 路线一在现有阶段 A 预测器之后增加共享逐签名映射：
+
+```text
+Eθ(S)=S+λgθ(S)
+```
+
+其中 \( \lambda=0.1 \)，gθ 为节点维共享的 `6T→32→32→6T` MLP，最后一层零初始化。阶段 B 冻结预测器训练 Eθ，阶段 C 联合微调预测器和 Eθ。训练使用 `data/s0-spb50` 和现有 `checkpoint/s0-spb50-rk/model.pt`，不修改原 S0 报告。
+
+运行命令：
+
+```text
+python main.py --mode z --device cpu
+```
+
+默认参数：
+
+- `--data-dir data/s0-spb50`；
+- `--stage-a-checkpoint checkpoint/s0-spb50-rk/model.pt`；
+- `--output-dir output/z-route1`；
+- `--checkpoint-dir checkpoint/z-route1`；
+- `--stage-b-epochs 10`；
+- `--stage-c-epochs 10`；
+- `--seed 42`。
+
+中断续训使用：
+
+```text
+python main.py --mode z --resume --device cpu
+```
+
+Z 路线一输出：
+
+- `z_report.json`：配置、阶段历史、硬门、测试指标和 Oracle-Z 汇总；
+- `z_metrics_detail.json`：逐样本 `r_S/r_Z`、真实排名、hardest negative、`δ`、`e`、`ρ`、方差和能量；
+- `oracle_z_report.json`：Oracle S/Z 排名一致性；
+- `stage_b_history.json`、`stage_c_history.json`：阶段损失、硬门和早停记录；
+- `checkpoint/z-route1/stage_b_best.pt`、`stage_b_last.pt`、`stage_c_best.pt`、`stage_c_last.pt`。
+
+阶段 B 的最佳模型按硬门通过后的 `median(ρ_Z/(ρ_S+ε))` 选择；阶段 C 按硬门通过后的 validation Z Top-1 选择。若阶段 C 没有合法 epoch，最终回退到阶段 B 最佳 checkpoint，并在 `z_report.json` 中报告 `stage_c_gate_failed`。
+
+当前状态：Z 路线一代码闭环已经接入并通过单元测试和小规模 mock smoke；seed 42 的完整 10+10 epoch 运行只用于 Experiment Gate，不能据此宣称路线一有效。根据文档要求，路线有效性结论至少需要 3 个随机种子。
 
 ## S1–S4 理想 Oracle 验证
 

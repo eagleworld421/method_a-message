@@ -17,9 +17,9 @@
 
 ### method-a1
 
-- 状态：S0 实现完成，S1/S2 待后续实验。
+- 状态：S0 与 Z 路线一 S0 全闭环实现完成；S1–S4 模型训练待后续实验。
 - 代码目录：`code/method-a1/`。
-- 当前内容：已接入 OpenDSS 数据生成、Re/Im 标准化特征、双向拓扑消息传递、TCN、A1 候选签名解码、稠密监督、残差定位、检测、可恢复 checkpoint、独立评估入口、早停、分项损失曲线、运行时统计、详细指标报告和独立 ranking 瓶颈诊断脚本。
+- 当前内容：已接入 OpenDSS 数据生成、Re/Im 标准化特征、双向拓扑消息传递、TCN、A1 候选签名解码、稠密监督、残差定位、检测、可恢复 checkpoint、独立评估入口、早停、分项损失曲线、运行时统计、详细指标报告和独立 ranking 瓶颈诊断脚本；已新增 Z 路线一共享映射 Eθ、阶段 B/C 训练、硬门筛选、阶段 best/last checkpoint、`z_report.json`、`z_metrics_detail.json`、`oracle_z_report.json` 和 `main.py --mode z` 入口。
 
 ### method-b
 

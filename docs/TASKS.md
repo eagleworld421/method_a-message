@@ -47,3 +47,13 @@
 - 关键决策：签名库保存完整候选响应并通过校验和复用；S1–S4 仅派生观测视图；Oracle 使用 masked residual 全候选排序；邻近性同时报告拓扑、电气和结构距离。
 - 已知局限：当前验证基于现有 IEEE13 S0 数据；S3 在单拓扑数据上无法形成有效跨拓扑测试划分；尚未纳入 S1–S4 模型训练结果。
 - 状态：待审查
+
+### A1-Z1-001：实现 Method-A1 Z 路线一 S0 全闭环
+
+- 任务 ID：A1-Z1-001
+- 需求摘要：在现有 S0 反事实签名框架上实现 Z 路线一共享映射 Eθ、阶段 B/C 训练、硬门筛选、Z 空间与 Oracle-Z 评估、CLI、测试和文档闭环。
+- 分支：agent/A1-Z1-001-z-route1-s0
+- 时间：任务开始 2026-09-10 / 分支创建 2026-09-10 / 合并待定
+- 关键决策：复用 `s0-spb50-rk` 阶段 A checkpoint 与 `data/s0-spb50`；Eθ 使用 Identity Norm、节点共享 `6T→32→32→6T` MLP、λ=0.1、w=1；使用 `[B,N]` 节点级掩码并支持内部 broadcast；阶段 B/C 各 10 epoch、patience 3；阶段 B 按 `rho_Z/(rho_S+epsilon)` 选择，阶段 C 按 validation Z Top-1 选择；原 `report.json` 不改写，新增 `z_report.json` 等独立产物。
+- 已知局限：seed 42 Experiment Gate 中 `rho_Z` 中位数未优于 `rho_S`，改善样本比例仅 0.091，尚未完成 3 seed 路线有效性结论；S1–S4 未纳入首版；实验输出和 checkpoint 位于 `.gitignore` 忽略目录。
+- 状态：待审查
