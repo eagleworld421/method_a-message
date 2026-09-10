@@ -55,5 +55,5 @@
 - 分支：agent/A1-Z1-001-z-route1-s0
 - 时间：任务开始 2026-09-10 / 分支创建 2026-09-10 / 合并待定
 - 关键决策：复用 `s0-spb50-rk` 阶段 A checkpoint 与 `data/s0-spb50`；Eθ 使用 Identity Norm、节点共享 `6T→32→32→6T` MLP、λ=0.1、w=1；使用 `[B,N]` 节点级掩码并支持内部 broadcast；阶段 B/C 各 10 epoch、patience 3；阶段 B 按 `rho_Z/(rho_S+epsilon)` 选择，阶段 C 按 validation Z Top-1 选择；原 `report.json` 不改写，新增 `z_report.json` 等独立产物。
-- 已知局限：seed 42 Experiment Gate 中 `rho_Z` 中位数未优于 `rho_S`，改善样本比例仅 0.091，尚未完成 3 seed 路线有效性结论；S1–S4 未纳入首版；实验输出和 checkpoint 位于 `.gitignore` 忽略目录。
+- 已知局限：seed 42、43、44 的 Experiment Gate 均完成，但 `rho_Z` 中位数均略高于 `rho_S`，改善样本比例均低于 0.13，路线有效性门未通过；S1–S4 未纳入首版；实验输出和 checkpoint 位于 `.gitignore` 忽略目录。
 - 状态：待审查

@@ -21,7 +21,7 @@
 ## 3. Current Baseline
 
 - 当前模型最新可见输出：`code/method-a1/output/s0-spb50-rk/`；Oracle smoke 输出位于 `code/method-a1/output/s0-oracle/` 至 `code/method-a1/output/s4-oracle/` 和 `code/method-a1/output/proximity/`。
-- Z 路线一 seed 42 Experiment Gate 输出位于 `code/method-a1/output/z-route1/`。测试集 Oracle S/Z Top-1 均为 1.0，端到端硬门全部通过；S 空间 Top-1 为 0.320，Z 空间 Top-1 为 0.320，`rho_S` 中位数为 3.144，`rho_Z` 中位数为 3.170，`rho_Z<=rho_S` 样本比例为 0.091。该结果表明代码闭环可运行，但 seed 42 尚未显示路线一相对 S 基线的诊断收益。
+- Z 路线一 seed 42 Experiment Gate 输出位于 `code/method-a1/output/z-route1/`，seed 43 和 seed 44 输出位于对应 `output/z-route1-seed43/` 和 `output/z-route1-seed44/`。三个 seed 的测试集 Oracle S/Z Top-1 均为 1.0，端到端硬门全部通过；`rho_Z<=rho_S` 样本比例分别为 0.091、0.128 和 0.094，`rho_Z` 中位数分别为 3.170、2.080 和 2.888，均略高于对应 `rho_S` 中位数 3.144、2.076 和 2.864。该结果表明代码闭环可运行，但路线一尚未显示相对 S 基线的诊断收益。
 - 数据规模：IEEE13、16 个节点、17 个候选、1600 个样本、1280 train、320 test。
 - 训练配置：启用 ranking loss，使用验证集总损失早停；最佳 epoch 为 40，实际运行 51 个 epoch。
 - 测试指标：Top-1 约 0.333，Top-K 约 0.490，检测准确率约 0.887，故障召回率约 0.843，F1 约 0.878。
@@ -39,10 +39,10 @@
 
 - 当前 Oracle smoke 使用已有 IEEE13 S0 库；尚未用多个真实拓扑实例形成有效 S3 跨拓扑统计结论。
 - 当前候选使用全量枚举，尚未实现分层采样、困难负样本缓存或大规模签名库内存映射。
-- Z 路线一已实现代码闭环，但 seed 42 Experiment Gate 中 `rho_Z` 中位数未优于 `rho_S`，且 `rho_Z<=rho_S` 样本比例仅为 0.091；因此当前不能宣称路线一有效，需要多种子和后续调参实验。
+- Z 路线一已实现代码闭环，但 seed 42、43、44 的完整 10+10 epoch 运行中 `rho_Z` 中位数均略高于 `rho_S`，`rho_Z<=rho_S` 样本比例均低于 0.13；因此当前不能宣称路线一有效，需要继续分析 margin、正则权重和阶段 C 选择规则。
 - 检测阈值仍为零阈值，尚未通过验证集完成标定或不确定区间设计；Z 空间检测复用零阈值。
 - 尚未开展多随机种子、多运行工况、IEEE37/123、真实跨拓扑和真实数据验证；Oracle 结果不能替代模型结果。
-- Z 路线一阶段 B/C 只使用 seed 42 完成 10+10 epoch 的运行验证，尚未完成 3 seed 路线有效性结论。
+- Z 路线一已完成 seed 42、43、44 的 10+10 epoch 运行验证；三个 seed 均未通过 `rho` 改善门，因此阶段 B/C 的调参、margin 或正则权重消融仍待后续任务。
 - 真实 OpenDSS smoke 依赖本机 COM 组件和测试馈线安装；纯单元测试不应依赖该环境。
 
 ## 6. Decisions Needed
@@ -57,7 +57,7 @@
 
 ## 7. Next Milestone
 
-- 对 Z 路线一运行至少 3 个随机种子，比较 Oracle 保真、`rho_Z/rho_S` 改善比例、方差比和 `q_E`，形成路线有效性结论或失败回退依据。
+- 针对 Z 路线一三个 seed 的 `rho` 未改善结果，开展 margin、正则权重、阶段 C 选择规则和 Eθ 容量消融；若仍不改善，按文档回退到 S 空间诊断或保留 Z 作为中间表示。
 - 在保持 S0 可复现的前提下，完成多种子、多工况基线并固定正式报告配置。
 - 使用多拓扑实例运行 S3，并在模型训练/预测路径上单独验证 S1–S4；不得将 Oracle 上界混入模型结论。
 - 完成历史设计稿、README 和状态字段的冲突清理，并为每项批准决策保留可追溯来源。
