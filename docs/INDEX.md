@@ -31,6 +31,8 @@
 
 - `docs/project/Method-A1-Z路线一-实现待确认清单.md`：路线一 S0 全闭环的最终实现决策、首版参数、模型选择与回退规则、输出结构和验收门。
 
+- `docs/project/Method-A1-Z路线一-参数扫描与对照结果.md`：路线一 S0 参数扫描、identity/random/label-shuffle/候选置换对照、真实改善判别指标和未发现有效配置的结论。
+
 - `docs/project/Method-A1-Z路线二-状态扰动分解.md`：路线二完整技术路线、可行性分析、论文依据、S1–S4 验证和验收标准。
 
 - `docs/project/Method-A1-Z路线三-差分相对表示.md`：路线三完整技术路线、可行性分析、论文依据、S1–S4 验证和验收标准。

@@ -192,7 +192,15 @@ Z 路线一输出：
 
 阶段 B 的最佳模型按硬门通过后的 `median(ρ_Z/(ρ_S+ε))` 选择；阶段 C 按硬门通过后的 validation Z Top-1 选择。若阶段 C 没有合法 epoch，最终回退到阶段 B 最佳 checkpoint，并在 `z_report.json` 中报告 `stage_c_gate_failed`。
 
-当前状态：Z 路线一代码闭环已经接入并通过单元测试和小规模 mock smoke；seed 42 的完整 10+10 epoch 运行通过 Experiment Gate。随后对 seed 42、43、44 的完整运行显示 Oracle S/Z Top-1 均保持 1.0，但 `rho_Z` 中位数均略高于 `rho_S`，`rho_Z<=rho_S` 样本比例分别约为 0.091、0.128 和 0.094，未达到文档规定的路线有效性门。因此当前结论是“代码闭环可运行，但路线一尚未显示相对 S 基线的诊断收益”，不能宣称路线一有效。
+当前状态：Z 路线一代码闭环已经接入并通过单元测试和小规模 mock smoke；seed 42、43、44 的完整运行显示 Oracle S/Z Top-1 均保持 1.0，但 `rho_Z` 中位数均略高于 `rho_S`，未达到路线有效性门。seed 42 进一步完成了 25 组参数扫描与对照实验，identity、random 和 label-shuffle 对照分别得到 `R=1.0`、`0.919` 和 `0.966`，说明 `rho_Z<=rho_S` 比例可以被平凡或非物理机制抬高；没有配置同时满足 `Δrho>0`、`Δlog e<Δlog delta`、优于对照且绝对 `rho` 不恶化。因此当前结论是“代码闭环可运行，但尚未找到真实有效的路线一配置”，不能宣称路线一有效。
+
+参数扫描入口：
+
+```text
+python scripts/run_z_sweep.py --configs all --device cpu
+```
+
+判别指标和结果见 `docs/project/Method-A1-Z路线一-参数扫描与对照结果.md`。
 
 ## S1–S4 理想 Oracle 验证
 
