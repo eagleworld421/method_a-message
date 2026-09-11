@@ -67,7 +67,7 @@ E(S)=S
 
 - identity 对照：直接使用 `E(S)=S`，检验 R 的平凡上限；
 - random 对照：随机初始化 Eθ，不训练，检验随机映射能否提高 R；
-- label-shuffle 对照：训练时打乱批内真实候选标签，检验提高是否依赖正确的物理候选对齐；
+- label-shuffle 对照：在阶段 B/C 的训练步骤中，把用于候选排序监督的真实候选索引 `k+` 在 batch 内随机置换；`L_S` 仍使用正确的全候选 signature 目标，identity、能量和 Lipschitz 正则不使用候选标签。该对照用于检验排序监督是否正确候选身份是否必要，而不是把所有训练信号都替换成错误标签；
 - candidate permutation null：评估时随机置换候选预测，重复计算 R 的零分布均值和 95 分位；
 - Oracle rank Spearman：逐样本比较 Oracle S 与 Oracle Z 的候选排序相关性；
 - 表示方差比和能量比：排除坍缩和能量爆炸。
