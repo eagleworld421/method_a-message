@@ -162,6 +162,12 @@ python scripts/summarize_z_results.py --output-root output --include-controls
 - `Z Top-1`：`residual_scale0.05` 最高，为 0.3791；其次是 `margin_scale10` 的 0.3660；完整 seed 44 运行为 0.3529。
 - `S Top-K`：`patience_c10` 最高，为 0.6013；完整 seed 43 运行为 0.5948。
 - `Z Top-K`：`patience_c10` 最高，为 0.6144；完整 seed 43 运行为 0.6078。
+- `S 检测准确率` 和 `Z 检测准确率`：`patience_c10` 最高，均为 0.9094；`alpha_z5` 次之，均为 0.9031。
+- `S 故障召回率` 和 `Z 故障召回率`：`alpha_z10` 最高，均为 0.8366；`patience_c10` 次之，均为 0.8105；`alpha_z5` 为 0.7974。
+- `S F1` 和 `Z F1`：`patience_c10` 最高，均为 0.8953；`alpha_z5` 次之，均为 0.8873。
+- `S precision` 和 `Z precision`：多组运行均为 1.0000，因为正常样本误报较少；该指标在当前 S0 数据上区分度较低。
+- `S normal_nofault_global_min_rate` 和 `Z normal_nofault_global_min_rate`：多组运行均为 1.0000，即正常样本的全局最小残差候选基本都是 `NO_FAULT`。
+- `S fault_global_min_rate` 最高：`residual_scale0.05` 为 0.3072；`Z fault_global_min_rate` 最高：完整 seed 44 运行为 0.3072。两者都远低于理想值。
 - `variance_ratio` 最接近 1：identity 对照为 1.0000，random 对照为 0.999997，非对照运行中 `beta_id10` 为 1.0124；最高为 `margin_scale5` 的 1.2309，最低为 label-shuffle 对照的 0.5054。
 - `q_e_true` 最接近 1：identity 对照为 1.0000，random 对照为 0.999999，非对照运行中 `beta_id10` 为 1.0010；最高为 `margin_scale5` 的 1.0623，最低为 label-shuffle 对照的 0.8956。
 - `oracle_fidelity`：28 份报告全部为 `True`。
