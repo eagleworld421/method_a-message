@@ -139,3 +139,32 @@ E(S)=S
 5. 如果上述修改仍无法满足判据，按路线一文档回退到 S 空间诊断，或把 Z 仅作为路线二式中间表示。
 
 本轮只完成 seed 42 单配置筛查和对照设计，未完成三 seed 有效性结论。任何后续“路线一有效”的声明都必须通过多 seed 和上述对照判据。
+
+## 七、各指标最优运行
+
+以下结果来自 `output/z-sweep-g1` 至 `output/z-sweep-g3` 的 25 组对照，以及 `output/z-route1`、`output/z-route1-seed43`、`output/z-route1-seed44` 的完整运行，共 28 份 `z_report.json`。可使用以下命令复现汇总：
+
+```text
+python scripts/summarize_z_results.py --output-root output --include-controls
+```
+
+需要特别说明：绝对指标如 `rho_z_median`、`S Top-1`、`Z Top-1` 在不同运行中的预测器已经过阶段 C 联合微调，因此不能直接跨运行比较。它们的最优值只能说明该运行的绝对表现，不能单独证明路线一有效。
+
+- `rho_improved_rate`：identity 对照最高，为 1.000；非对照运行中 `beta_id10` 最高，为 0.875；`beta_rank_z5` 为 0.716。
+- `delta_rho`：label-shuffle 对照最高，为 0.3225；非对照运行中 `beta_rank_z5` 为 0.0604，`beta_id10` 为 0.0086。
+- `rho_z_median`（越低越好）：random 对照为 1.8392，identity 对照为 1.8393；非对照运行中 `alpha_z5` 最低，为 1.9910，但其 `delta_rho=-0.0015`。
+- `rho_ratio_median`（越低越好）：label-shuffle 对照为 0.8964；非对照运行中 `beta_id10` 为 0.9974，`beta_rank_z5` 为 0.9983。
+- `log_error_change`（越低越好）：label-shuffle 对照为 -0.1255；非对照运行中 `beta_id10` 最低，为 +0.00286，但误差仍然没有下降。
+- `log_delta_change`（越高越好）：`residual_scale0.2` 最高，为 +0.01443；其次是 `hidden64` 的 +0.00991。二者同时伴随显著的误差放大。
+- `oracle_rank_spearman`（越高越好）：多组非对照运行达到 1.000，包括 `alpha_z10`、`beta_id10`、`beta_id5`、`gamma_id0.5` 和 `gamma_id2`。
+- `oracle_rank_spearman_negative_rate`（越低越好）：多组运行均为 0.000。
+- `S Top-1`：`residual_scale0.05` 最高，为 0.3791；其次是 `margin_scale10` 的 0.3725。但两者的 `rho` 中位数均明显恶化。
+- `Z Top-1`：`residual_scale0.05` 最高，为 0.3791；其次是 `margin_scale10` 的 0.3660；完整 seed 44 运行为 0.3529。
+- `S Top-K`：`patience_c10` 最高，为 0.6013；完整 seed 43 运行为 0.5948。
+- `Z Top-K`：`patience_c10` 最高，为 0.6144；完整 seed 43 运行为 0.6078。
+- `variance_ratio` 最接近 1：identity 对照为 1.0000，random 对照为 0.999997，非对照运行中 `beta_id10` 为 1.0124；最高为 `margin_scale5` 的 1.2309，最低为 label-shuffle 对照的 0.5054。
+- `q_e_true` 最接近 1：identity 对照为 1.0000，random 对照为 0.999999，非对照运行中 `beta_id10` 为 1.0010；最高为 `margin_scale5` 的 1.0623，最低为 label-shuffle 对照的 0.8956。
+- `oracle_fidelity`：28 份报告全部为 `True`。
+- `null_rho_improved_rate_p95` 最低：`patience_c10` 为 0.1125，但其实际 `rho_improved_rate` 为 0.1063，低于自身 null p95，不能视为有效改善。
+
+综合这些最优值可以确认：高 `rho_improved_rate` 和 `delta_rho` 主要出现在 identity、random 或 label-shuffle 对照中；非对照配置的改善量级很小，并伴随误差放大或绝对性能下降。因此当前没有值得进入三 seed 正式验证的候选配置。
