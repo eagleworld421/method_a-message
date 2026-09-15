@@ -1,7 +1,9 @@
 """基于 OpenDSS COM 接口的故障场景仿真器。"""
 
+import gc
 import warnings
 from dataclasses import dataclass
+from itertools import combinations
 from typing import Optional
 
 import numpy as np
@@ -13,6 +15,70 @@ _DSS_CASES = {
     "ieee37": r"C:\Program Files\OpenDSS\IEEETestCases\37Bus\ieee37.dss",
     "ieee123": r"C:\Program Files\OpenDSS\IEEETestCases\123Bus\IEEE123Master.dss",
 }
+
+
+@dataclass(frozen=True)
+class FaultSpec:
+    """一个物理可行的故障类型与相别组合。"""
+
+    fault_class: int
+    phases: tuple[int, ...]
+
+
+def enumerate_fault_specs(available_phases) -> list[FaultSpec]:
+    """按母线实际相别枚举五类故障中的物理可行组合。"""
+    phases = tuple(sorted({int(value) for value in available_phases if int(value) > 0}))
+    result = [FaultSpec(0, (phase,)) for phase in phases]
+    for pair in combinations(phases, 2):
+        result.append(FaultSpec(1, pair))
+        result.append(FaultSpec(2, pair))
+    if len(phases) >= 3:
+        for triple in combinations(phases, 3):
+            result.append(FaultSpec(3, triple))
+            result.append(FaultSpec(4, triple))
+    return result
+
+
+def build_fault_command(
+    bus_name: str,
+    fault_class: int,
+    z_fault: float,
+    phases,
+    floating_node: int = 9,
+) -> str:
+    """构造具有明确相别和接地语义的 OpenDSS 故障命令。"""
+    if fault_class not in FAULT_CLASSES:
+        raise ValueError(f"未知故障类型：{fault_class}")
+    phase_tuple = tuple(int(value) for value in phases)
+    required = {0: 1, 1: 2, 2: 2, 3: 3, 4: 3}[int(fault_class)]
+    if len(phase_tuple) != required or len(set(phase_tuple)) != len(phase_tuple):
+        raise ValueError(f"故障类型 {FAULT_CLASSES[fault_class]} 的相别数量必须为 {required}")
+    phase_text = ".".join(str(value) for value in phase_tuple)
+    if fault_class == 0:
+        bus1 = f"{bus_name}.{phase_text}"
+        bus2 = f"{bus_name}.0"
+        element_phases = 1
+    elif fault_class == 1:
+        bus1 = f"{bus_name}.{phase_tuple[0]}"
+        bus2 = f"{bus_name}.{phase_tuple[1]}"
+        element_phases = 1
+    elif fault_class == 2:
+        bus1 = f"{bus_name}.{phase_text}"
+        bus2 = f"{bus_name}.0.0"
+        element_phases = 2
+    elif fault_class == 3:
+        bus1 = f"{bus_name}.{phase_text}"
+        bus2 = f"{bus_name}.0.0.0"
+        element_phases = 3
+    else:
+        bus1 = f"{bus_name}.{phase_text}"
+        floating = ".".join([str(int(floating_node))] * 3)
+        bus2 = f"{bus_name}.{floating}"
+        element_phases = 3
+    return (
+        f"New Fault.F1 bus1={bus1} bus2={bus2} "
+        f"phases={element_phases} r={float(z_fault):g}"
+    )
 
 
 class OpenDSSUnavailableError(RuntimeError):
@@ -36,6 +102,7 @@ class FaultConfig:
     fault_bus: int
     z_fault: float
     load_multipliers: Optional[dict] = None
+    fault_phases: Optional[tuple[int, ...]] = None
 
 
 class FaultSimulator:
@@ -50,10 +117,30 @@ class FaultSimulator:
         self._bus_names = []
         self._n_nodes = 0
         self._node_counts = []
+        self._bus_phase_nodes = []
         self._base_loads = None
         self.adj_matrix = None
         self.line_params = {}
         self._topology_loaded = False
+        self._com_initialized = False
+
+    def close(self) -> None:
+        """释放 OpenDSS 电路与 COM 引用。"""
+        dss = self._dss
+        self._dss = None
+        if dss is not None:
+            clear = getattr(dss, "ClearAll", None)
+            if callable(clear):
+                clear()
+        del dss
+        gc.collect()
+        if self._com_initialized:
+            try:
+                import pythoncom
+
+                pythoncom.CoUninitialize()
+            finally:
+                self._com_initialized = False
 
     def _resolve_bus(self, bus_str: str):
         """将带相位后缀的母线名解析为母线索引。"""
@@ -109,6 +196,11 @@ class FaultSimulator:
                 f"无法加载 OpenDSS COM：case={self.case_name}, path={self._master_path}"
             )
         try:
+            if not self._com_initialized:
+                import pythoncom
+
+                pythoncom.CoInitialize()
+                self._com_initialized = True
             dss = com.Dispatch("OpenDSSEngine.DSS")
             self._dss = dss
             dss.Text.Command = f'Compile "{self._master_path}"'
@@ -138,7 +230,8 @@ class FaultSimulator:
             dss.ActiveCircuit.Solution.Solve()
             self._bus_names = list(dss.ActiveCircuit.AllBusNames)
             self._n_nodes = len(self._bus_names)
-            self._node_counts = self._read_node_counts()
+            self._bus_phase_nodes = self._read_bus_phase_nodes()
+            self._node_counts = [len(nodes) for nodes in self._bus_phase_nodes]
             if not self._topology_loaded:
                 self._load_topology()
                 self._topology_loaded = True
@@ -151,22 +244,40 @@ class FaultSimulator:
 
     def _read_node_counts(self) -> list:
         """读取每个母线的相节点数。"""
-        counts = []
+        return [len(nodes) for nodes in self._read_bus_phase_nodes()]
+
+    def _read_bus_phase_nodes(self) -> list[tuple[int, ...]]:
+        """读取每个母线实际存在的一至三相节点编号。"""
+        phases = []
         for name in self._dss.ActiveCircuit.AllBusNames:
             self._dss.ActiveCircuit.SetActiveBus(name)
-            counts.append(int(self._dss.ActiveCircuit.ActiveBus.NumNodes))
-        return counts
+            nodes = tuple(
+                int(node)
+                for node in self._dss.ActiveCircuit.ActiveBus.Nodes
+                if 1 <= int(node) <= 3
+            )
+            phases.append(nodes)
+        return phases
 
     def _apply_fault(self, config: FaultConfig) -> None:
         """在目标母线注入故障并重新求解。"""
         if not 0 <= config.fault_bus < len(self._bus_names):
             raise IndexError(f"故障母线越界：{config.fault_bus}")
         try:
-            n_phases = _FAULT_N_PHASES[config.fault_class]
             bus_name = self._bus_names[config.fault_bus]
-            self._dss.Text.Command = (
-                f"New Fault.F1 bus1={bus_name} phases={n_phases} r={config.z_fault}"
-            )
+            if config.fault_phases is None:
+                n_phases = _FAULT_N_PHASES[config.fault_class]
+                command = (
+                    f"New Fault.F1 bus1={bus_name} phases={n_phases} r={config.z_fault}"
+                )
+            else:
+                command = build_fault_command(
+                    bus_name,
+                    config.fault_class,
+                    config.z_fault,
+                    config.fault_phases,
+                )
+            self._dss.Text.Command = command
             self._dss.ActiveCircuit.Solution.Solve()
         except Exception as exc:
             raise RuntimeError(
@@ -178,21 +289,17 @@ class FaultSimulator:
         """读取母线三相幅值与相角，返回 `[N,6]`。"""
         try:
             circuit = self._dss.ActiveCircuit
-            vmags = circuit.AllBusVmagPu
-            volts = circuit.AllBusVolts
-            bus_of_node = []
-            for bus, count in enumerate(self._node_counts):
-                bus_of_node.extend([bus] * max(0, int(count)))
             out = np.zeros((self._n_nodes, 6), dtype=np.float32)
-            for node_idx in range(min(len(vmags), len(volts) // 2, len(bus_of_node))):
-                bus = bus_of_node[node_idx]
-                phase = sum(1 for prior in bus_of_node[:node_idx] if prior == bus)
-                if phase >= 3:
-                    continue
-                out[bus, phase] = float(vmags[node_idx])
-                re = float(volts[2 * node_idx])
-                im = float(volts[2 * node_idx + 1])
-                out[bus, 3 + phase] = np.degrees(np.arctan2(im, re))
+            for bus_index, name in enumerate(self._bus_names):
+                circuit.SetActiveBus(name)
+                nodes = [int(node) for node in circuit.ActiveBus.Nodes]
+                values = list(circuit.ActiveBus.puVmagAngle)
+                for position, node in enumerate(nodes):
+                    if not 1 <= node <= 3 or 2 * position + 1 >= len(values):
+                        continue
+                    phase_index = node - 1
+                    out[bus_index, phase_index] = float(values[2 * position])
+                    out[bus_index, 3 + phase_index] = float(values[2 * position + 1])
             return out
         except Exception as exc:
             raise RuntimeError(
