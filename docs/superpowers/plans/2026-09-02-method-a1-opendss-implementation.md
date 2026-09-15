@@ -1,6 +1,6 @@
 <!--
 本文档：Method-A1 OpenDSS 首轮实现计划，覆盖 S0 数据生成、模型、训练、推理和验证。
-触发关键词：Method-A1、OpenDSS、S0、实现计划、签名库、TCN、拓扑 GNN
+触发关键词：Method-A1、OpenDSS、S0、实现计划、响应特征库、TCN、拓扑 GNN
 检索顺序：4
 设计依据：docs/superpowers/specs/2026-09-02-method-a1-opendss-design.md
 -->
@@ -11,7 +11,7 @@
 
 **Goal:** 在 `code/method-a1/` 实现基于 OpenDSS 的 A1 反事实稠密监督 S0 闭环，并用 mock 与可用的 IEEE13 COM smoke 完成初步验证。
 
-**Architecture:** 迁移 Method-C 的 OpenDSS 场景、拓扑和波形生成能力，以及 TCN 时序编码器；重新实现不含边可信度的拓扑消息传递 GNN、候选条件签名解码器、稠密/排序损失、训练器、残差定位、NO_FAULT 检测和报告。所有候选签名先离线写入 `signature_bank.npy`，训练和推理不调用 OpenDSS。
+**Architecture:** 迁移 Method-C 的 OpenDSS 场景、拓扑和波形生成能力，以及 TCN 时序编码器；重新实现不含边可信度的拓扑消息传递 GNN、候选条件响应特征解码器、稠密/排序损失、训练器、残差定位、NO_FAULT 检测和报告。所有候选响应特征先离线写入 `signature_bank.npy`，训练和推理不调用 OpenDSS。
 
 **Tech Stack:** Python 3.9+, NumPy, PyTorch 2.x, pywin32（真实 OpenDSS smoke）, pytest, JSON, matplotlib（可选报告图）。
 
@@ -23,8 +23,8 @@
 
 - 首轮只实现并验证 IEEE13 的 S0：正确拓扑 + 全观测；S1/S2 不生成、不训练、不报告。
 - 候选为 IEEE13 母线，候选集合为 `0..N-1` 加 `NO_FAULT=N`；首轮全枚举。
-- 签名目标为完整动态六维极坐标电压波形 `[N,T,6]`，不是静态相量或 toy feeder 输出。
-- 只复用 Method-C 的 OpenDSS 数据生成、拓扑/波形工具和 TCN 基础思路；A1 的签名解码器、损失、训练器、推理和评估全部独立实现。
+- 响应特征目标为完整动态六维极坐标电压波形 `[N,T,6]`，不是静态相量或 toy feeder 输出。
+- 只复用 Method-C 的 OpenDSS 数据生成、拓扑/波形工具和 TCN 基础思路；A1 的响应特征解码器、损失、训练器、推理和评估全部独立实现。
 - GNN 使用 `edge_index`、`edge_attr` 和 `edge_mask` 做拓扑消息传递；禁止实现边可信度状态、`c` 输出和边可信度损失。
 - OpenDSS 导入采用延迟加载；无 COM 环境时单元测试必须可收集，真实 smoke 必须明确报告环境缺失。
 - OpenDSS 编译或求解失败必须抛出带 case、bus、故障类型、电阻和阶段信息的异常，不得用全零数组兜底。
@@ -229,7 +229,7 @@ git commit -m "feat(method-a1): add OpenDSS and waveform data adapters"
 
 ---
 
-### Task 3: 构建 S0 全候选 OpenDSS 签名库
+### Task 3: 构建 S0 全候选 OpenDSS 响应特征库
 
 **Files:**
 
@@ -400,7 +400,7 @@ git commit -m "[WIP] method-a1 TCN and plain topology GNN"
 
 ---
 
-### Task 5: 实现候选条件签名预测器与 NO_FAULT 嵌入
+### Task 5: 实现候选条件响应特征预测器与 NO_FAULT 嵌入
 
 **Files:**
 

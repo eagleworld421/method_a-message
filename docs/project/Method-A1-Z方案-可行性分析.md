@@ -9,7 +9,7 @@
 
 ## 2. 方案一可行性
 
-前提是存在低容量、稳定的共享映射，并且其变换不会破坏 Oracle 排序。现有框架已满足输入张量、签名 bank、masked MSE 和统一候选比较的基础条件，但当前 `signature_predictor.py` 含 candidate embedding，需在 Z 实验中隔离或移除该旁路，避免把候选索引混入物理映射。
+前提是存在低容量、稳定的共享映射，并且其变换不会破坏 Oracle 排序。现有框架已满足输入张量、响应特征 bank、masked MSE 和统一候选比较的基础条件，但当前 `signature_predictor.py` 含 candidate embedding，需在 Z 实验中隔离或移除该旁路，避免把候选索引混入物理映射。
 
 需要新增的最小内容：共享 Eθ、Z 距离、Oracle-Z 评估、坍缩检查和 `ρ_Z` 报告。TCN、GNN、数据生成逻辑可保持不变。方案一与 S1–S4 兼容性最高。
 

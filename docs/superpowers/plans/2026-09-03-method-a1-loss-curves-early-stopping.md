@@ -1,6 +1,6 @@
 <!--
 本文档：Method-A1 训练早停、分项损失记录和损失曲线绘制的实现计划。
-触发关键词：Method-A1、早停、early stopping、train loss、val loss、test loss、损失曲线、ranking loss、运行时、效率、TCN、GNN、签名预测
+触发关键词：Method-A1、早停、early stopping、train loss、val loss、test loss、损失曲线、ranking loss、运行时、效率、TCN、GNN、响应特征预测
 设计依据：当前 code/method-a1 的 A1Trainer、losses.py、main.py 和 S0 评估入口。
 -->
 
@@ -10,7 +10,7 @@
 
 **Goal:** 为 Method-A1 S0 训练增加基于验证集总损失的早停机制，并将 train、val、test 的每类损失及总损失分别绘制为独立曲线图。
 
-**Architecture:** 训练器统一返回按名称组织的损失分量，分别在训练集、验证集和测试集上记录 epoch 级结果；早停只读取 `val_total`，不读取测试集。绘图模块遍历实际出现的损失名称，每个名称生成一张包含 train/val/test 三条曲线的 PNG，因此当前只有签名损失时生成两张图（签名损失、总损失），启用 `ranking_loss` 后自动增加排序损失图。运行时统计模块对 TCN、GNN 和签名预测解码阶段分别测量训练前向、训练反向和推理前向时间，并将总秒数、每样本毫秒数和计时配置写入报告。
+**Architecture:** 训练器统一返回按名称组织的损失分量，分别在训练集、验证集和测试集上记录 epoch 级结果；早停只读取 `val_total`，不读取测试集。绘图模块遍历实际出现的损失名称，每个名称生成一张包含 train/val/test 三条曲线的 PNG，因此当前只有响应特征损失时生成两张图（响应特征损失、总损失），启用 `ranking_loss` 后自动增加排序损失图。运行时统计模块对 TCN、GNN 和响应特征预测解码阶段分别测量训练前向、训练反向和推理前向时间，并将总秒数、每样本毫秒数和计时配置写入报告。
 
 **Tech Stack:** Python 3.9+, PyTorch, NumPy, matplotlib, pytest, JSON。
 
@@ -23,10 +23,10 @@
 - 重新启用 ranking loss 时，故障样本的正候选为 `y_loc`，正常样本的正候选为 `NO_FAULT=n_nodes`；两类样本都必须参与排序监督。
 - ranking loss 对每个样本的完整候选集合施加 pairwise margin，目标是故障母线或 `NO_FAULT` 的残差成为全局最小；该目标同时通过 `fault_global_min_rate` 和 `normal_nofault_global_min_rate` 验证。
 - 早停监控指标固定为验证集总损失 `val_total`；测试损失只用于记录和绘图，绝不参与早停、最佳模型选择或参数调节。
-- 每个损失名称独立绘图；总损失始终单独成图，不与签名损失或排序损失共用图。
+- 每个损失名称独立绘图；总损失始终单独成图，不与响应特征损失或排序损失共用图。
 - 测试集损失按每个 epoch 计算以形成曲线，但不反向传播、不更新参数、不影响 checkpoint 选择。
 - 训练历史和 checkpoint 必须保存损失分量、总损失、最佳 epoch、实际运行轮数和早停状态。
-- TCN、GNN、签名预测的训练计时包含前向和反向阶段；推理计时只包含前向阶段，不包含 DataLoader、残差汇总和文件写入。
+- TCN、GNN、响应特征预测的训练计时包含前向和反向阶段；推理计时只包含前向阶段，不包含 DataLoader、残差汇总和文件写入。
 - CPU 使用 `time.perf_counter`；CUDA 计时在每个模块边界前后调用 `torch.cuda.synchronize()`，避免异步 kernel 导致时长低估。
 - 每个模块同时保存总秒数、调用次数、平均每次调用毫秒数和平均每样本毫秒数；计时默认启用，不能改变 S0 的损失和模型决策。
 - `code/**/*.py` 的模块 docstring、函数/类 docstring、注释和 TODO/FIXME/NOTE 使用中文。
@@ -351,7 +351,7 @@ git commit -m "feat(method-a1): plot separate loss curves"
 
 ---
 
-### Task 6: 记录 TCN、GNN 和签名预测模块运行时长
+### Task 6: 记录 TCN、GNN 和响应特征预测模块运行时长
 
 **Files:**
 - Create: `code/method-a1/src/timing.py`
@@ -382,7 +382,7 @@ git commit -m "feat(method-a1): plot separate loss curves"
 }
 ```
 
-- 模块命名固定为 `tcn`、`gnn`、`signature`；签名预测计时覆盖候选条件解码器前向/反向，不重复计入 TCN 和 GNN。
+- 模块命名固定为 `tcn`、`gnn`、`signature`；响应特征预测计时覆盖候选条件解码器前向/反向，不重复计入 TCN 和 GNN。
 - 训练总计时为训练 DataLoader 每个 batch 的模块前向和反向时间之和；验证和测试归入 `inference_seconds`，但报告额外保存 `validation_seconds` 与 `test_seconds` 便于效率分析。
 
 - [ ] **Step 1: Write the failing tests**
@@ -416,7 +416,7 @@ Expected: FAIL because当前没有模块级计时器，报告中也没有 `runti
 
 - [ ] **Step 3: Implement timer and module boundaries**
 
-在 CPU 上使用 `time.perf_counter`；在 CUDA 上每次 start/stop 前后同步当前设备。训练循环在 TCN 前向、GNN 前向、签名解码前向处分别包围计时；反向阶段使用对应模块的 backward hook 记录 `train_backward`。验证/测试调用同一模块边界但不注册反向计时。每次 stop 同时累计调用次数和 batch 样本数，`avg_ms_per_sample` 使用累计秒数除以累计样本数。
+在 CPU 上使用 `time.perf_counter`；在 CUDA 上每次 start/stop 前后同步当前设备。训练循环在 TCN 前向、GNN 前向、响应特征解码前向处分别包围计时；反向阶段使用对应模块的 backward hook 记录 `train_backward`。验证/测试调用同一模块边界但不注册反向计时。每次 stop 同时累计调用次数和 batch 样本数，`avg_ms_per_sample` 使用累计秒数除以累计样本数。
 
 - [ ] **Step 4: Run focused tests**
 
@@ -473,7 +473,7 @@ Expected: FAIL because主入口尚未接收早停参数、不会绘制损失图�
 
 - [ ] **Step 3: Implement CLI and report integration**
 
-在 `main.py` 中将 `patience`、`min_delta`、`lambda_rank`、`rank_margin` 传给 `A1Trainer`，训练完成后调用 `plot_loss_curves(history, output_dir)`，并把 `TimingAggregator.snapshot()` 写入报告。评估阶段根据测试样本的残差分别计算故障母线全局最小率和正常样本 `NO_FAULT` 全局最小率。`evaluate` 模式不绘制训练曲线，但应记录测试阶段 TCN/GNN/签名推理时长；只有训练模式生成损失图。README 增加当前默认两张图和启用 `lambda_rank` 后增加第三张图的说明，并说明测试曲线不参与早停以及模块运行时字段的含义。
+在 `main.py` 中将 `patience`、`min_delta`、`lambda_rank`、`rank_margin` 传给 `A1Trainer`，训练完成后调用 `plot_loss_curves(history, output_dir)`，并把 `TimingAggregator.snapshot()` 写入报告。评估阶段根据测试样本的残差分别计算故障母线全局最小率和正常样本 `NO_FAULT` 全局最小率。`evaluate` 模式不绘制训练曲线，但应记录测试阶段 TCN/GNN/响应特征推理时长；只有训练模式生成损失图。README 增加当前默认两张图和启用 `lambda_rank` 后增加第三张图的说明，并说明测试曲线不参与早停以及模块运行时字段的含义。
 
 - [ ] **Step 4: Run smoke and focused tests**
 
@@ -509,7 +509,7 @@ python -m compileall -q src main.py scripts
 
 - [ ] **Step 2: Update documentation**
 
-在项目文档中明确：当前训练器实际含签名 MSE 和可选 ranking loss；默认只有签名损失生效，因此默认生成签名损失图与总损失图。记录 `output/` 下的图片命名、checkpoint 中的历史字段、从零训练/断点续训时早停状态，以及 TCN/GNN/签名预测训练与推理时长字段和计时边界。
+在项目文档中明确：当前训练器实际含响应特征 MSE 和可选 ranking loss；默认只有响应特征损失生效，因此默认生成响应特征损失图与总损失图。记录 `output/` 下的图片命名、checkpoint 中的历史字段、从零训练/断点续训时早停状态，以及 TCN/GNN/响应特征预测训练与推理时长字段和计时边界。
 
 - [ ] **Step 3: Run final diff checks**
 
@@ -535,5 +535,5 @@ git commit -m "docs(method-a1): document early stopping and loss plots"
 - [ ] 测试损失只记录和绘图，不参与训练决策。
 - [ ] checkpoint 可恢复损失历史、epoch 和早停状态。
 - [ ] 独立 `evaluate` 模式不触发训练曲线绘制。
-- [ ] `report.json` 保存 TCN、GNN、签名预测的训练前向/反向和推理前向时长，并记录调用次数与每样本耗时。
+- [ ] `report.json` 保存 TCN、GNN、响应特征预测的训练前向/反向和推理前向时长，并记录调用次数与每样本耗时。
 - [ ] `python -m pytest tests -q` 全部通过。

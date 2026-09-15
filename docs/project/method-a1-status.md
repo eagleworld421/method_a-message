@@ -11,7 +11,7 @@
 
 ## 2. Implemented and Verified
 
-- 已实现：OpenDSS 数据生成、Re/Im 标准化、TCN、普通拓扑 GNN、A1 候选签名解码、稠密 signature MSE、可选 ranking loss、残差定位、NO_FAULT 检测、验证集早停、checkpoint 续训、独立评估、分项损失曲线和模块运行时统计。
+- 已实现：OpenDSS 数据生成、Re/Im 标准化、TCN、普通拓扑 GNN、A1 候选响应特征解码、稠密 signature MSE、可选 ranking loss、残差定位、NO_FAULT 检测、验证集早停、checkpoint 续训、独立评估、分项损失曲线和模块运行时统计。
 - 已实现：Z 路线一 S0 全闭环：共享 Eθ（Norm=Identity、节点共享 `6T→32→32→6T`、λ=0.1、w=1）、阶段 B/C 训练、逐样本 physical gap margin、log 空间能量正则、Jacobian 与 Lipschitz 正则、硬门筛选、阶段 best/last checkpoint、resume、Oracle-Z、S/Z 双空间 `δ/e/ρ`、方差和能量指标，以及 `main.py --mode z` 入口。
 - 已实现：可复用 signature library 的数组契约、标准化统计量、真实/观测拓扑语义、校验清单和严格加载；S1–S4 Oracle residual、Top-K、排名、检测、gap、并列、分层 JSONL 结果；拓扑跳数、电气距离、结构距离、Spearman、Kendall、Mantel 和最近邻分析；场景图形输出。
 - 报告格式：S0 标量汇总写入 `report.json`，逐样本残差和预测字段写入 `metrics_detail.json`；Z 路线一使用独立的 `z_report.json`、`z_metrics_detail.json`、`oracle_z_report.json`、`stage_b_history.json` 和 `stage_c_history.json`，不修改原 S0 产物。
@@ -38,7 +38,7 @@
 ## 5. Known Limitations and Blockers
 
 - 当前 Oracle smoke 使用已有 IEEE13 S0 库；尚未用多个真实拓扑实例形成有效 S3 跨拓扑统计结论。
-- 当前候选使用全量枚举，尚未实现分层采样、困难负样本缓存或大规模签名库内存映射。
+- 当前候选使用全量枚举，尚未实现分层采样、困难负样本缓存或大规模响应特征库内存映射。
 - Z 路线一已实现代码闭环，但 seed 42、43、44 的 100 epoch 上限、patience 3 早停运行中 `rho_Z` 中位数均略高于 `rho_S`，`rho_Z<=rho_S` 样本比例均低于 0.15；因此当前不能宣称路线一有效，需要继续分析 margin、正则权重、阶段 C 选择规则和早停配置。
 - 已完成 seed 42 的 25 组参数扫描与对照实验。identity 对照 `R=1.0`、random 对照 `R=0.919`、label-shuffle 对照 `R=0.966`，说明 R 高值可由恒等映射、随机扰动或非物理训练产生；没有配置同时满足 `Δrho>0`、`Δlog e<Δlog delta`、优于对照、Oracle 保真且绝对 `rho` 不恶化。结果详见 `docs/project/Method-A1-Z路线一-参数扫描与对照结果.md`。
 - 检测阈值仍为零阈值，尚未通过验证集完成标定或不确定区间设计；Z 空间检测复用零阈值。
