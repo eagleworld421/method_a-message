@@ -57,3 +57,13 @@
 - 关键决策：复用 `s0-spb50-rk` 阶段 A checkpoint 与 `data/s0-spb50`；Eθ 使用 Identity Norm、节点共享 `6T→32→32→6T` MLP、λ=0.1、w=1；使用 `[B,N]` 节点级掩码并支持内部 broadcast；阶段 B/C 各 10 epoch、patience 3；阶段 B 按 `rho_Z/(rho_S+epsilon)` 选择，阶段 C 按 validation Z Top-1 选择；原 `report.json` 不改写，新增 `z_report.json` 等独立产物。
 - 已知局限：seed 42、43、44 在阶段 B/C 上限 100 epoch、patience 3 早停下均完成，但 `rho` 改善门未通过；seed 42 的 25 组参数扫描与 identity/random/label-shuffle/候选置换对照也未发现同时满足 `Δrho>0`、`Δlog e<Δlog delta`、优于对照且绝对 `rho` 不恶化的配置。S1–S4 未纳入首版；实验输出和 checkpoint 位于 `.gitignore` 忽略目录。
 - 状态：待审查
+
+### A1-DOC-001：统一响应特征术语并记录验证计划
+
+- 任务 ID：A1-DOC-001
+- 需求摘要：统一项目文档中的响应特征术语，记录诊断表示空间逻辑链，并建立待验证命题与验证实验的对应关系。
+- 分支：agent/A1-DOC-001-response-feature-docs
+- 时间：任务开始 2026-09-14 / 分支创建 2026-09-15 / 合并待定
+- 关键决策：统一响应特征术语，并以命题—实验对应关系记录方法确认前验证计划。
+- 已知局限：仅完成文档整理，S2、S4及物理约束等结论仍需按计划开展实验验证。
+- 状态：待审查
