@@ -1,4 +1,4 @@
-<!-- 摘要：Method-A1 IEEE13 S0 训练、Z 路线一 S0 全闭环、理想 Oracle S1–S4 场景、签名库校验、物理邻近性分析和评估报告的运行说明。 -->
+<!-- 摘要：Method-A1 E0 信息充分性实验、IEEE13 S0 训练、Z 路线一、理想 Oracle S1–S4、签名库校验、物理邻近性分析和评估报告的运行说明。 -->
 
 # Method-A1：OpenDSS 反事实稠密监督
 
@@ -26,7 +26,20 @@ python -m pytest tests -q
 
 运行 `tests/` 下的全部单元测试和 smoke 测试，不调用真实 OpenDSS；适合在修改代码后快速检查数据接口、模型形状、训练器和 checkpoint 行为。
 
-### 3. 生成 S0 离线数据
+### 3. 运行 E0 信息充分性实验
+
+E0 诊断只读取同一事件故障前基准化的全节点三相复电压，不读取负荷、故障类型、相别、阻抗或真实故障发生时刻。数据生成与分析可分开执行：
+
+```text
+python scripts/run_e0.py --mode generate --run-id <run-id> [生成参数]
+python scripts/run_e0.py --mode analyze --run-id <run-id> --distance-backend auto
+```
+
+正式确认运行使用独立的签名库、校准和确认负荷工况；生成参数及随机种子保存在数据目录的 `meta.json`，分析参数保存在输出目录的 `config.json`。最终证据位于 `output/e0/<run-id>/`，包括协议、数据/划分/种子清单、逐样本和候选对指标、噪声重复、风险—覆盖率、汇总、三态决策、图形和 `report.md`。
+
+E0 的人为相移、幅值摆动和阻尼扰动未按真实传感器规格标定，只能解释为敏感性扰动。唯一母线输出门默认关闭；在应用侧冻结可接受风险并完成独立验证前，只报告 Top-K。
+
+### 4. 生成 S0 离线数据
 
 ```text
 python scripts/generate_dataset.py \
@@ -50,7 +63,7 @@ python scripts/generate_dataset.py \
 - `--seed`：数据生成随机种子，默认 `42`。
 - `--s0-only`：启用当前 S0 路径；当前实现固定为 S0，S1/S2 尚未开放。
 
-### 4. 训练并评估 S0
+### 5. 训练并评估 S0
 
 ```text
 python main.py \
@@ -92,7 +105,7 @@ python main.py \
 
 默认 `--lambda-rank 0` 时生成 `loss_signature.png` 和 `loss_total.png` 两张图；启用排序损失后自动增加 `loss_ranking.png`。每张图只绘制一种损失，并分别显示 train、val、test 曲线。
 
-### 5. 从零开始训练
+### 6. 从零开始训练
 
 程序会复用 `--checkpoint-dir/model.pt`。要从零开始训练，不要使用已有 checkpoint 目录，指定一个新的目录即可：
 
@@ -114,7 +127,7 @@ python main.py \
 
 如果 `checkpoint/s0/model.pt` 已存在且其中记录的完成轮次不少于本次 `--epochs`，再次运行会加载模型、优化器状态和训练历史并跳过重复训练；若目标轮次更高，则从已保存轮次继续训练。
 
-### 6. 独立加载 checkpoint 评估
+### 7. 独立加载 checkpoint 评估
 
 ```text
 python main.py \
