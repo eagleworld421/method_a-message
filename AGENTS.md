@@ -13,6 +13,11 @@
 ## 文档规范
 
 - 所有项目文档统一放在 `docs/`。
+- `docs/project/plans/` 存放实验执行前形成的计划与设计类文档，包括实验流程与决策规程、实验与实现设计、符号与公式定义、数据契约与生成流程以及指标规范。
+- `docs/project/reports/` 存放实验执行后形成的结果与结论文档，包括正式结果摘要、实验执行结论以及审计与复核分析报告。
+- 新增文档按“实验执行前归 `plans/`、实验执行后归 `reports/`”判断归档位置；`docs/project/` 根目录保留研究目标与问题动机、技术路线与方案路线、项目入口、决策流程与状态记录等其他项目文档。
+- 文档在 `docs/project/`、`docs/project/plans/` 与 `docs/project/reports/` 之间迁移时，必须同步更新 `docs/INDEX.md` 中的路径以及文档正文与其他文档中的交叉引用。
+- `docs/superpowers/plans/` 继续存放 Superpowers 实施计划，不存放实验计划；单次运行的原始产物仍按 `code/method-*/output/` 归档，不写入 `docs/project/reports/`。
 - `docs/INDEX.md` 是统一文档索引。涉及项目技术细节、任务记录或规范时，先读取索引，再按索引指示读取目标文档。
 - 新增或修改 Markdown 文档时，必须同步维护文件头部摘要，并在文档结构或触发关键词变化时更新 `docs/INDEX.md`。
 - 项目文档使用正式、严谨的学术书面表达，禁止使用口语化、营销化或网络化表述。

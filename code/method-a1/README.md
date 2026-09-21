@@ -1,4 +1,4 @@
-<!-- 摘要：Method-A1 E0 信息充分性实验、IEEE13 S0 训练、Z 路线一、理想 Oracle S1–S4、签名库校验、物理邻近性分析和评估报告的运行说明。 -->
+<!-- 摘要：Method-A1 E0 信息充分性实验、E0-COV 模板覆盖归因、E1 配对因素来源、E4-A0/R1 未知故障阻抗覆盖归因、E5 跨工况跨拓扑物理关系复核、PI 响应 paired-v1 数据集与特权条件 predictor 实验、IEEE13 S0 训练、Z 路线一、理想 Oracle S1–S4、签名库校验、物理邻近性分析和评估报告的运行说明。 -->
 
 # Method-A1：OpenDSS 反事实稠密监督
 
@@ -38,6 +38,81 @@ python scripts/run_e0.py --mode analyze --run-id <run-id> --distance-backend aut
 正式确认运行使用独立的签名库、校准和确认负荷工况；生成参数及随机种子保存在数据目录的 `meta.json`，分析参数保存在输出目录的 `config.json`。最终证据位于 `output/e0/<run-id>/`，包括协议、数据/划分/种子清单、逐样本和候选对指标、噪声重复、风险—覆盖率、汇总、三态决策、图形和 `report.md`。
 
 E0 的人为相移、幅值摆动和阻尼扰动未按真实传感器规格标定，只能解释为敏感性扰动。唯一母线输出门默认关闭；在应用侧冻结可接受风险并完成独立验证前，只报告 Top-K。
+
+### 3.1 运行 E0-COV 模板覆盖归因
+
+E0-COV 使用与 E0 确认集完全相同的物理单元，比较当前模板覆盖、阻抗匹配、工况匹配、联合匹配和开发/校准密度曲线的配对恢复。正式运行分 pilot、生成和分析三步：
+
+```text
+python scripts/run_e0_cov.py --mode pilot --run-id <pilot-run-id> --seed 242
+python scripts/run_e0_cov.py --mode generate --run-id <run-id> --seed 342
+python scripts/run_e0_cov.py --mode analyze --run-id <run-id> --seed 342 \
+  --decision-thresholds data/e0-cov/decision_thresholds_frozen.json
+```
+
+pilot 只使用开发/校准工况，输出 `output/e0-cov/pilot-<pilot-run-id>/`；正式生成把新增模板写入 `data/e0-cov/<run-id>/`，正式分析把证据包写入 `output/e0-cov/<run-id>/`。输出包括覆盖臂清单、逐样本配对指标、等模板数量对照、密度曲线、决策文件、模板—评价观测重叠审计、图形和中文报告。`CC/CRC` 使用确认工况模板，只能解释为 nuisance-aware 覆盖上界。
+
+### 3.2 运行 E1 配对因素来源分析
+
+E1-A/B/C 复用 E0-COV 的逐臂 residual、评价元数据和物理响应，并读取 S0 拓扑数组计算拓扑、电气和结构距离：
+
+```text
+python scripts/run_e1.py --run-id <run-id> \
+  --coverage-output-dir output/e0-cov/<e0cov-run-id> \
+  --topology-dir data/s0 \
+  --decision-thresholds data/e1/e1_decision_thresholds_frozen.json \
+  --seed 342
+```
+
+E1 输出写入 `output/e1/<run-id>/`，包括跨工况 rank 转移、2×2 配对距离、错排局部性和受限置换零假设、汇总、决策和中文报告。E1 不训练预测器，不实现残差化、条件化或度量学习方法；局部物理关系只有在 E5 独立复核通过后才能进入训练约束。
+
+### 3.3 运行 E4-A0 未知故障阻抗覆盖归因
+
+E4-A0/R1 只使用 Oracle/模板诊断，不训练预测器，不读取真实故障位置或真实故障阻抗。它把阻抗划分为开发 `R_dev`、校准 `R_cal` 和正式测试 `R_test` 三个整组互斥集合；CD 各等级覆盖同一完整开发范围且逐级嵌套；`A0-CI` 与 `A0-CS` 合并为统一的 `A0-CIS` 连续插值搜索族，历史名称只作别名。新增 `A0-CIS__BROKEN_PAIRING` 作为同物理故障规格内的阻抗—响应置乱对照；原始模板数和独立故障规格数分别审计，不以重复模板构造独立预算。`CR`/`CRC` 只作评价阻抗匹配上界和 nuisance-aware 上界，不参与可部署排名。
+
+正式流程分校准数据生成、pilot 冻结和正式确认三步：
+
+```text
+python scripts/run_e4_a0.py --mode generate-calibration --run-id <calibration-run-id> \
+  --calibration-data-dir data/e4-a0/<calibration-run-id> --seed 242
+python scripts/run_e4_a0.py --mode pilot --run-id <pilot-run-id> \
+  --calibration-data-dir data/e4-a0/<calibration-run-id> \
+  --output-dir output/e4-a0/<pilot-run-id> --seed 242
+python scripts/run_e4_a0.py --mode confirmation --run-id <confirm-run-id> \
+  --calibration-data-dir data/e4-a0/<calibration-run-id> \
+  --output-dir output/e4-a0/<confirm-run-id> \
+  --frozen-parameters output/e4-a0/<pilot-run-id>/frozen_parameters.json \
+  --pilot-output-dir output/e4-a0/<pilot-run-id> --seed 342
+```
+
+pilot 只使用开发/校准阻抗和开发/校准工况，输出 `output/e4-a0/<pilot-run-id>/frozen_parameters.json`、`density_curve.json` 和 `interpolation_fidelity.json`；正式确认输出写入 `output/e4-a0/<confirm-run-id>/`，包含实验臂清单、阻抗与数据划分清单、逐样本和逐候选指标、候选计数分层、严格错排与并列集合统计、正确方向的两级块 bootstrap/配对置换、独立插值保真度、破坏配对对照、泄漏审计、决策文件和中文报告。R1 正式确认 `e4a0-r1-confirm-20260917-seed342` 的结论为：CIS 定位改善方向成立但保真度未通过，CD 未超过随机阻抗扩容，CM 证据不足，E4-A0/R1 总体为 `证据不足`；具体数值和 E4-A1 条件见 `docs/project/method-a1-e4a0-result-summary.md`。
+
+E4-A0 不进入 E4-A1、E4-A2、E4-B 或 E5，不进行学习型表示预选，也不把 CR/CRC 上界当作部署方案。全部正式测试阻抗均在开发网格范围内，外插能力未验证。
+
+### 3.4 运行 E5 跨工况、跨拓扑物理关系复核
+
+E5 只分析真实 signature 与真实拓扑之间的物理关系，不训练预测器、诊断模型或表示学习模型。输入可以重复提供多个签名库；需要正式 confirmation 时，应通过 topology manifest 提供至少两个拓扑族，并将 discovery 与 confirmation 拓扑显式互斥：
+
+```text
+python scripts/run_e5.py --mode pilot \
+  --signature-library-dir output/signed-library/a1-signed-library-seed42 \
+  --output-root output/e5 \
+  --run-id e5-pilot-<date>-seed342 \
+  --seed 342
+```
+
+pilot 自动冻结 bootstrap/置换次数、局部邻域分位数、显著性水平和最小效应界，并写入 `frozen_parameters.json`。confirmation 必须读取该文件，不得重新选择关系方向或阈值：
+
+```text
+python scripts/run_e5.py --mode confirmation \
+  --signature-library-dir <confirmation-library-dir> \
+  --topology-manifest <topology-manifest.json> \
+  --frozen-parameters output/e5/<pilot-run-id>/frozen_parameters.json \
+  --output-root output/e5 \
+  --run-id e5-confirm-<date>-seed342
+```
+
+当前仓库仅有一个 IEEE13 拓扑实例，运行结果会自动写出 `formal_confirmation_allowed=false` 和 `证据不足`；该 pilot 不构成 H5 正式通过，也不产生训练约束。
 
 ### 4. 生成 S0 离线数据
 
@@ -144,11 +219,42 @@ python main.py \
 
 checkpoint 包含 `state_dict`、`optimizer_state_dict`、`epoch`、完整 `history`、`best_epoch`、`epochs_ran`、`stopped_early`、早停配置和实验元数据。加载新格式 checkpoint 时会从保存的 `epoch` 继续，已保存的 epoch 不会重复追加；旧的仅含标量损失历史的 checkpoint 会从第 0 轮重新建立新历史。
 
+## PI 响应数据集与特权条件 predictor
+
+该路径建立独立的 `paired-v1` 数据集：每个事件保存部署观测 `X_obs`、候选物理描述 `candidate_features`、节点物理描述 `node_features`、真实阻抗下的全候选配对响应 `paired_response`、真实阻抗和评价标签。`paired_response`、`impedance_grid`、`y_loc`、`y_class` 和 `y_resist` 不进入学生部署输入；真实阻抗只在训练期教师分支可见。
+
+先运行 mock smoke 并记录分项时间：
+
+```text
+python scripts/run_privileged_response_smoke.py \
+  --run-id smoke-20260919-seed342 \
+  --device cpu \
+  --test-report logs/pi-response-smoke/unit-tests/pytest_final.log
+```
+
+完整实验先运行真实 OpenDSS 单次调用计时探针，再把 smoke 报告和探针时间用于估时：
+
+```text
+python scripts/run_privileged_response_experiment.py \
+  --run-id pi-response-full-20260919-seed342 \
+  --dataset-id paired-v1-ieee13-seed342 \
+  --n-events 160 \
+  --epochs 100 \
+  --batch-size 16 \
+  --probe-opendss \
+  --smoke-report output/pi-response-smoke/<timing-smoke-run>/smoke/report.json \
+  --test-report logs/pi-response-smoke/unit-tests/pytest_final.log
+```
+
+输出写入 `data/pi-response/<dataset-id>/`、`output/pi-response/<run-id>/`、`checkpoint/pi-response/<run-id>/` 和 `logs/pi-response/<run-id>/`。完整输出包含 `report.json`、`metrics_detail.json`、`runtime_report.json`、`run_manifest.json`、`heartbeat.jsonl`、`smoke/` 子目录和 `review/` 审查包；`review/` 包含数据契约、模型契约、损失契约、推理轨迹、候选置换、回归等价性、数值容差和测试报告。
+
+当前 `paired-v1` 只覆盖真实阻抗下的配对响应；连续阻抗 `trajectory-v2` 尚未实现。正式运行 `pi-response-full-20260919-seed342` 的结论为：数据契约、模型契约、回归和数值容差检查全部通过，但学生和蒸馏的候选排序没有稳定改善，physical gap 相对误差约 `1.12-1.22`，Top-1 约 `0.042-0.083`，教师 Top-1 约 `0.083`；oracle physical gap 约 `0.00112`，小于学生响应距离约 `0.00264`。因此本轮触发计划停止条件，不增加更复杂的 PI 结构，下一步应回到数据配对和 predictor-only 响应误差审计。
+
 ## 输出目录
 
 - `data/`：OpenDSS 生成的输入、标签、拓扑和全候选签名库；
 - `checkpoint/`：模型参数和训练状态；
-- `output/`：`report.json`、`scenario_summary.json`、`metrics_detail.json`、训练历史和按损失名称生成的 PNG 曲线；
+- `output/`：`report.json`、`scenario_summary.json`、`metrics_detail.json`、训练历史和按损失名称生成的 PNG 曲线；E0、E0-COV、E1 与 E4-A0 的正式证据分别位于 `output/e0/`、`output/e0-cov/`、`output/e1/` 和 `output/e4-a0/`；
 - `logs/`：运行日志（如需）。
 
 `report.json` 和 `scenario_summary.json` 的 `metrics` 只保留标量汇总指标。逐测试样本的 `residuals`、`pred_loc`、`pred_detect` 和 `d` 保存在同目录的 `metrics_detail.json`，其中 `_comments` 字段说明每个详细字段的含义、形状和索引规则；`report.json` 的 `metrics_detail_file` 字段记录该文件名。
